@@ -51,7 +51,7 @@
                        (recur (rest xs) (record-ir x) acc))
         "FieldDecl" (let [{:keys [type desugared]} (type-of x)]
                       (if (and pending (str/includes? type "unnamed"))
-                        (recur (rest xs) nil (conj acc {:name (get x "name") :record pending}))
+                        (recur (rest xs) nil (conj acc {:name (get x "name") :nested pending}))
                         (recur (rest xs) pending
                                (conj acc {:name (get x "name") :type type :desugared desugared
                                           :bitfield? (boolean (get x "isBitfield"))}))))
@@ -65,41 +65,62 @@
    :fields (record-fields node)
    :file (get node "_file")})
 
+(defn signature-return
+  "The return type of a function type as clang spells it: \"int (int, char *)\"
+  -> \"int\". The parameter list is the first parenthesised group at the top
+  level, except when that group opens with `*`: the function then returns a
+  pointer to a function (or to an array), its own parameters are the group
+  nested inside, and the return type is the signature with that inner group
+  removed, so \"void (*(int))(int)\" -> \"void (*)(int)\"."
+  [sig]
+  (let [n (count sig)
+        open (loop [i 0] (cond (>= i n) nil (= \( (nth sig i)) i :else (recur (inc i))))
+        close-of (fn [start]
+                   (loop [i (inc start) depth 1]
+                     (let [c (nth sig i)]
+                       (cond (= c \() (recur (inc i) (inc depth))
+                             (= c \)) (if (= depth 1) i (recur (inc i) (dec depth)))
+                             :else (recur (inc i) depth)))))]
+    (cond
+      (nil? open) (str/trim sig)
+      (= \* (nth sig (inc open)))
+      (let [inner (loop [i (+ open 2)] (if (= \( (nth sig i)) i (recur (inc i))))
+            end (close-of inner)]
+        (str/trim (str (subs sig 0 inner) (subs sig (inc end)))))
+      :else (str/trim (subs sig 0 open)))))
+
 (defn- function-ir [node]
-  (let [sig (get-in node ["type" "qualType"])
-        ;; the return type is everything before the parameter list, which is
-        ;; the last balanced parenthesised group in the signature
-        params-start (loop [i (dec (count sig)) depth 0]
-                       (let [c (nth sig i)]
-                         (cond
-                           (= c \)) (recur (dec i) (inc depth))
-                           (= c \() (if (= depth 1) i (recur (dec i) (dec depth)))
-                           :else (recur (dec i) depth))))]
-    {:name (get node "name")
-     :ret (str/trim (subs sig 0 params-start))
-     :params (->> (get node "inner")
-                  (filter #(= "ParmVarDecl" (get % "kind")))
-                  (mapv #(assoc (type-of %) :name (get % "name"))))
-     :variadic? (boolean (get node "variadic"))
-     :file (get node "_file")}))
+  {:name (get node "name")
+   :ret (signature-return (get-in node ["type" "qualType"]))
+   :params (->> (get node "inner")
+                (filter #(= "ParmVarDecl" (get % "kind")))
+                (mapv #(assoc (type-of %) :name (get % "name"))))
+   :variadic? (boolean (get node "variadic"))
+   :file (get node "_file")})
 
 (defn extract
-  "Return {:typedefs {name ir} :records {name ir} :enums {name ir}
-  :functions [ir ...]} for the top-level declarations whose file satisfies
-  `file-pred`. Records are merged by name so a forward declaration does not
-  hide the later complete definition. An anonymous enum takes the name of
-  the typedef that follows it (`typedef enum {...} Name;`), which is how
-  clang itself refers to it."
+  "Return {:typedefs {name ir} :system-typedefs {name ir} :records {name ir}
+  :enums {name ir} :functions [ir ...]} for the top-level declarations whose
+  file satisfies `file-pred`. A typedef from any other file is kept apart
+  under :system-typedefs, with the spelling clang desugars it to, so a type
+  that reaches a binding through one (time_t, size_t) still resolves. Records
+  are merged by name so a forward declaration does not hide the later
+  complete definition. An anonymous enum takes the name of the typedef that
+  follows it (`typedef enum {...} Name;`), which is how clang itself refers
+  to it."
   [dump file-pred]
   (dissoc
    (reduce
     (fn [ir node]
-      (let [file (get node "_file")]
+      (let [file (get node "_file")
+            kind (get node "kind")]
         (if-not (and file (file-pred file))
-          ir
+          (if (and (= kind "TypedefDecl") (get node "name"))
+            (assoc-in ir [:system-typedefs (get node "name")] (type-of node))
+            ir)
           (let [pending (::anonymous-enum ir)
                 ir (dissoc ir ::anonymous-enum)]
-            (case (get node "kind")
+            (case kind
               "TypedefDecl" (let [{:keys [type] :as t} (type-of node)
                                   ir (assoc-in ir [:typedefs (get node "name")] (assoc t :file file))
                                   [_ enum-name] (re-matches #"enum (\S+)" (or type ""))]
@@ -119,6 +140,6 @@
                            (assoc ir ::anonymous-enum {:constants (enum-constants node) :file file}))
               "FunctionDecl" (update ir :functions conj (function-ir node))
               ir)))))
-    {:typedefs {} :records {} :enums {} :functions []}
+    {:typedefs {} :system-typedefs {} :records {} :enums {} :functions []}
     (get dump "inner"))
    ::anonymous-enum))

@@ -40,7 +40,8 @@
 (def ^:private probe-prelude
   "Every association of a C generic selection is type-checked even when it is
   not chosen, so the branches select a printing function and only the chosen
-  one is applied to the value."
+  one is applied to the value. A float is printed as a double: a jolt
+  constant is a double either way."
   "#include <stdio.h>
 static void pf(const char *n, double v) { printf(\"d %s %.17g\\n\", n, v); }
 static void ps(const char *n, const char *v) { printf(\"s %s %s\\n\", n, v); }
@@ -63,9 +64,8 @@ int main(void) {
        "\n  return 0;\n}\n"))
 
 (defn- parse-line [line]
-  (when-let [[_ kind name value] (re-find #"^([fdsbui]) (\S+) ?(.*)$" line)]
+  (when-let [[_ kind name value] (re-find #"^([dsbui]) (\S+) ?(.*)$" line)]
     [name (case kind
-            "f" {:type :float :value (Double/parseDouble value)}
             "d" {:type :double :value (Double/parseDouble value)}
             "s" {:type :string :value value}
             "b" {:type :bool :value (= "1" value)}

@@ -36,10 +36,28 @@
         (update :macro-exclude set)
         (update :skip-headers set))))
 
-(defn- file-pred [{:keys [file-filter skip-headers]}]
+(defn file-pred
+  "Whether a declaration's file is one the manifest wants bindings for."
+  [{:keys [file-filter skip-headers]}]
   (fn [file]
     (and (str/includes? file file-filter)
          (not (contains? skip-headers (last (str/split file #"/")))))))
+
+(defn classify-function
+  "[:ok f] when the function can be bound, else [:skipped f reason]. A
+  variadic function is bound with the bare `:&` marker, which jolt cannot
+  combine with :blocking or with an aggregate by value anywhere in the
+  signature; a va_list parameter has no jolt spelling at all."
+  [ctx blocking f]
+  (let [ps (map #(types/param-type ctx (:type %)) (:params f))
+        r (types/return-type ctx (:ret f))
+        bad (concat (filter map? ps) (when (map? r) [r]))
+        aggregate? (or (some vector? ps) (vector? r))]
+    (cond
+      (seq bad) [:skipped f (str/join "; " (map :unsupported bad))]
+      (and (:variadic? f) (contains? blocking (:name f))) [:skipped f "variadic and :blocking do not combine"]
+      (and (:variadic? f) aggregate?) [:skipped f "variadic with a by-value aggregate"]
+      :else [:ok f])))
 
 (defn- write! [path text]
   (io/make-parents path)
@@ -59,14 +77,7 @@
                                                  (macros/candidates pre {:prefixes macro-prefixes
                                                                          :exclude macro-exclude
                                                                          :file-pred pred}))
-        ;; classify functions
-        classified (for [f (:functions ir)]
-                     (let [ps (map #(types/param-type ctx (:type %)) (:params f))
-                           r (types/return-type ctx (:ret f))
-                           bad (concat (filter map? ps) (when (map? r) [r]))]
-                       (cond (:variadic? f) [:variadic f "variadic"]
-                             (seq bad) [:unsupported f (str/join "; " (map :unsupported bad))]
-                             :else [:ok f])))
+        classified (map #(classify-function ctx blocking %) (:functions ir))
         functions (map second (filter #(= :ok (first %)) classified))
         skipped-fns (into {} (map (fn [[_ f why]] [(:name f) why]) (remove #(= :ok (first %)) classified)))
         callbacks (into {} (keep (fn [[n td]] (when-let [sig (types/callback-signature ctx (:type td))]

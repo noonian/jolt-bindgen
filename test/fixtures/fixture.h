@@ -1,0 +1,60 @@
+/* A header exercising every shape native-gen classifies. fixture.c implements
+   it, so the generated bindings can be loaded and called by the tests. */
+#ifndef FIXTURE_H
+#define FIXTURE_H
+#include <stdint.h>
+#include <stdbool.h>
+#include <stdarg.h>
+#include <stddef.h>
+#include <time.h>
+
+/* object-like macros: the probe reports each one's value and type */
+#define FX_VERSION 3
+#define FX_NAME "fixture"
+#define FX_SCALE 1.5
+#define FX_BIG 18446744073709551615ULL
+#define FX_FLAG (1u << 3)
+#define FX_NEGATIVE (-7)
+#define FX_TRUE ((_Bool)1)
+#define FX_TYPE_NAME FX_Point            /* not an expression: pruned */
+#define FX_EXCLUDED 1                    /* listed in :macro-exclude */
+#define FX_FUNCTION_LIKE(x) ((x) + 1)    /* function-like: never a candidate */
+#define FXX_OTHER_PREFIX 9               /* outside :macro-prefixes */
+
+typedef enum FX_Mode { FX_MODE_A, FX_MODE_B = 5, FX_MODE_C } FX_Mode;
+typedef enum { FX_ANON_X = 1, FX_ANON_Y } FX_Anon;
+
+typedef struct FX_Point { int32_t x; int32_t y; } FX_Point;
+typedef struct FX_Rect { FX_Point origin; float size[2]; uint8_t tag; } FX_Rect;
+typedef union FX_Value { int32_t i; double d; } FX_Value;
+typedef struct FX_Tagged { int kind; FX_Value value; } FX_Tagged;
+typedef struct FX_Bits { unsigned a : 3; unsigned b : 5; } FX_Bits;
+typedef struct FX_Anonymous { int kind; union { int i; float f; }; } FX_Anonymous;
+typedef struct FX_Named { int kind; union { int i; float f; } u; } FX_Named;
+typedef struct FX_Matrix { float m[3][4]; } FX_Matrix;
+typedef struct FX_Opaque FX_Opaque;
+typedef bool (*FX_Callback)(void *userdata, FX_Point *p);
+
+int fx_add(int a, int b);
+const char *fx_name(void);
+char *fx_dup(const char *s);
+const char *fx_const_name(const char *const s);
+FX_Point fx_origin(void);
+int fx_area(FX_Rect r);
+void fx_set_callback(FX_Callback cb, void *userdata);
+FX_Opaque *fx_open(const char *path);
+void fx_close(FX_Opaque *o);
+time_t fx_mtime(FX_Opaque *o);
+size_t fx_len(const char *s);
+void fx_log(const char *fmt, ...);
+const char *fx_last_log(void);
+void fx_vlog(const char *fmt, va_list ap);
+int fx_value(FX_Value v);
+int fx_tagged(FX_Tagged t);
+int fx_bits(FX_Bits b);
+void (*fx_handler(int sig))(int);
+void fx_wait(int ms);
+void fx_say(const char *s, int n);
+void fx_log_blocking(const char *fmt, ...);
+int fx_sum_points(FX_Point p, ...);
+#endif

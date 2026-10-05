@@ -22,10 +22,12 @@
   (str (-> (str ns-sym) (str/replace "." "/") (str/replace "-" "_")) ".jolt"))
 
 (defn- long-literal [s]
-  ;; values beyond a fixnum-friendly long get the bignum suffix
-  (let [digits (str/replace s #"^-" "")]
+  ;; a value outside a 64-bit long gets the bignum suffix
+  (let [negative? (str/starts-with? s "-")
+        digits (if negative? (subs s 1) s)
+        limit (if negative? "9223372036854775808" "9223372036854775807")]
     (if (or (> (count digits) 19)
-            (and (= 19 (count digits)) (pos? (compare digits "9223372036854775807"))))
+            (and (= 19 (count digits)) (pos? (compare digits limit))))
       (str s "N")
       s)))
 
@@ -33,20 +35,25 @@
   (str "(def " name " "
        (case type
          (:int :uint) (long-literal value)
-         (:float :double) (pr-str (double value))
+         :double (pr-str (double value))
          :string (pr-str value)
          :bool (pr-str value))
        ")"))
 
-(defn- function-forms [ctx blocking {:keys [name ret params]}]
+(defn- function-forms [ctx blocking {:keys [name ret params variadic?]}]
   (let [blocking? (contains? blocking name)
         raw-args (mapv #(types/param-type ctx (:type %)) params)
         ;; a blocking call releases the collector while it waits, so Chez
         ;; refuses to marshal a string for it: the caller passes a C string
         string->pointer? (and blocking? (some #{:string} raw-args))
         arg-types (if string->pointer? (mapv #(if (= :string %) :pointer %) raw-args) raw-args)
+        ;; the bare marker: each call's tail is read off the values it is given
+        arg-types (if variadic? (conj arg-types :&) arg-types)
         ret-type (types/return-type ctx ret)
-        proto (str ret " " name "(" (str/join ", " (map #(str (:type %) " " (:name %)) params)) ")")
+        proto (str ret " " name "("
+                   (str/join ", " (concat (map #(str (:type %) " " (:name %)) params)
+                                          (when variadic? ["..."])))
+                   ")")
         by-value-ret? (vector? ret-type)]
     (str ";; " proto "\n"
          (when by-value-ret?
@@ -55,6 +62,8 @@
            ";; by-value struct arguments are passed as pointers to the struct\n")
          (when string->pointer?
            ";; blocking call: const char * arguments are passed as pointers (see ffi/with-c-string)\n")
+         (when variadic?
+           ";; variadic: arguments past the fixed ones travel per call as a 64-bit integer, a double or a C string\n")
          "(ffi/defcfn " name " " (pr-str name) " " (pr-str arg-types) " " (pr-str ret-type)
          (when blocking? " :blocking")
          ")")))

@@ -7,9 +7,13 @@ namespace of `jolt.ffi/defcfn` forms, `ffi/layout` descriptors and
 constants, the struct layouts measured by the C compiler (`gen/layouts.edn`),
 a generated layout test, and a report of what was skipped and why. Object-like
 macros are evaluated by a generated C probe, so the compiler decides each
-constant's value and type; functions listed as blocking are bound with
+constant's value and type; a typedef from another header (`time_t`) resolves
+to the type clang desugars it to; functions listed as blocking are bound with
 `:blocking` and their `const char *` parameters as pointers; variadic
-functions are skipped; records it cannot describe (bitfields, anonymous
+functions are bound with the bare `:&` marker, unless they are blocking or
+pass an aggregate by value, which jolt does not combine with it; a `va_list`
+parameter, or a union passed by value (alone or inside a struct), has no
+binding and is reported; records it cannot describe (bitfields, anonymous
 unions) are left out and reported.
 
 It is the tool the sdl3, joltc-jlt and cimgui-jlt bindings are generated
@@ -25,6 +29,10 @@ and regenerates with `jolt -M:gen`. The generated files are committed like
 a lockfile, so a regeneration after an upgrade shows the API change as a
 diff. Needs clang on the path.
 
+The tests run the header under `test/fixtures` through the generator, build
+it into a shared library and call the generated bindings, so they need clang
+too:
+
 ```sh
-jolt -A:test -e "(require 'native-gen.json-test 'clojure.test) (clojure.test/run-tests 'native-gen.json-test)"
+jolt test
 ```

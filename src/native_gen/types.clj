@@ -21,6 +21,12 @@
    "bool" :bool "_Bool" :bool
    "void" :void})
 
+(def ^:private va-list-names
+  "A va_list has no jolt spelling: nothing in jolt can build one, and its
+  desugared type (a char * here, a struct pointer elsewhere) would only hide
+  that."
+  #{"va_list" "__builtin_va_list" "__gnuc_va_list" "__va_list_tag"})
+
 (defn- strip-qualifiers [s]
   (-> s
       (str/replace #"\b(const|volatile|restrict|__restrict)\b" "")
@@ -30,8 +36,12 @@
 (defn pointer-type? [s]
   (or (str/ends-with? s "*") (str/includes? s "(*")))
 
-(defn- const-char-ptr? [s]
-  (boolean (re-matches #"const char\s*\*" (str/trim s))))
+(defn- const-char-ptr?
+  "A pointer to constant characters, in either order of the qualifier and
+  with or without a constant pointer itself: clang spells all of them
+  `const char *` or `const char *const`."
+  [s]
+  (boolean (re-matches #"\s*(?:const\s+char|char\s+const)\s*\*\s*(?:const\s*)?" s)))
 
 (defn- array-dims
   "\"float[3][4]\" -> [\"float\" [3 4]], or nil."
@@ -49,14 +59,14 @@
   records inlined. Throws when a field cannot be represented."
   [ctx record]
   [(:kind record)
-   (mapv (fn [{:keys [name type record bitfield?] :as f}]
+   (mapv (fn [{:keys [name type nested bitfield?] :as f}]
            (when bitfield?
              (throw (ex-info (str "bitfield " name " in " (:name record)) {:field f})))
            (when-not name
              (throw (ex-info (str "anonymous member in " (:name record)) {:field f})))
            [(keyword name)
-            (if record
-              (record-descriptor ctx record)
+            (if nested
+              (record-descriptor ctx nested)
               (let [r (resolve-type ctx type)]
                 (case (:kind r)
                   :scalar (:ffi r)
@@ -81,6 +91,19 @@
   (try (record-descriptor ctx record) nil
        (catch Exception e (ex-message e))))
 
+(defn holds-union?
+  "Whether a descriptor is a union or has one anywhere inside it. jolt lays
+  such a record out, but refuses to pass it by value: which member is live is
+  the program's knowledge, and the register classification depends on it."
+  [desc]
+  (boolean
+   (when (vector? desc)
+     (case (first desc)
+       :union true
+       :struct (some (fn [[_ t]] (holds-union? t)) (second desc))
+       :array (holds-union? (second desc))
+       false))))
+
 (defn resolve-type
   "Classify a C type string. Returns one of
     {:kind :scalar :ffi kw}
@@ -88,11 +111,15 @@
     {:kind :record :descriptor [...] :name s}
     {:kind :array :elem ffi-or-descriptor :dims [n ...]}
     {:kind :unsupported :reason s}
-  `ctx` holds :typedefs, :records and :enums from native-gen.ast/extract."
+  `ctx` holds :typedefs, :system-typedefs, :records and :enums from
+  native-gen.ast/extract. A typedef from the manifest's own headers resolves
+  through what it names; one from any other header resolves through the
+  spelling clang desugared it to."
   [ctx s]
   (let [raw (str/trim s)
         t (strip-qualifiers raw)]
     (cond
+      (contains? va-list-names t) {:kind :unsupported :reason "va_list"}
       (const-char-ptr? raw) {:kind :pointer :ffi :string}
       (pointer-type? t) {:kind :pointer :ffi :pointer}
       (array-dims t) (let [[elem dims] (array-dims t)
@@ -118,7 +145,18 @@
       (resolve-type ctx (get-in ctx [:typedefs t :type]))
       (contains? (:records ctx) t)
       (resolve-type ctx (str (name (get-in ctx [:records t :kind])) " " t))
+      (contains? (:system-typedefs ctx) t)
+      (resolve-type ctx (get-in ctx [:system-typedefs t :desugared]))
       :else {:kind :unsupported :reason (str "unknown type " t)})))
+
+(defn- by-value
+  "The signature type for a record crossing by value, or {:unsupported reason}
+  when it holds a union."
+  [{:keys [name descriptor]}]
+  (if (holds-union? descriptor)
+    {:unsupported (str (if (= :union (first descriptor)) "union " "struct ") name
+                       " by value holds a union: pass it by pointer")}
+    [:by-value descriptor]))
 
 (defn param-type
   "The ffi argument type for a parameter, or {:unsupported reason}."
@@ -127,7 +165,7 @@
     (case (:kind r)
       :scalar (if (= :void (:ffi r)) {:unsupported "void parameter"} (:ffi r))
       :pointer (:ffi r)
-      :record [:by-value (:descriptor r)]
+      :record (by-value r)
       :array :pointer
       {:unsupported (:reason r)})))
 
@@ -140,7 +178,7 @@
     (case (:kind r)
       :scalar (:ffi r)
       :pointer (:ffi r)
-      :record [:by-value (:descriptor r)]
+      :record (by-value r)
       {:unsupported (:reason r)})))
 
 (defn callback-signature
