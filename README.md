@@ -28,7 +28,7 @@ alias:
 
 ```clojure
 :aliases {:gen {:extra-deps {jlt-commons/native-gen {:local/root "../native-gen"}}
-                :main-opts ["-m" "native-gen.main" "gen/manifest.edn"]}}
+                :main-opts ["-m" "noonian.jolt.native-gen.main" "gen/manifest.edn"]}}
 ```
 
 and regenerates with `jolt -M:gen`. The generated files are committed like

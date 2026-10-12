@@ -1,8 +1,8 @@
-(ns native-gen.ast-test
+(ns noonian.jolt.native-gen.ast-test
   (:require [clojure.test :refer [deftest is testing]]
             [clojure.string :as str]
-            [native-gen.ast :as ast]
-            [native-gen.fixture :as fx]))
+            [noonian.jolt.native-gen.ast :as ast]
+            [noonian.jolt.native-gen.fixture :as fx]))
 
 (deftest signature-return
   (is (= "int" (ast/signature-return "int (int, char *)")))

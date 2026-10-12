@@ -1,6 +1,6 @@
-(ns native-gen.json-test
+(ns noonian.jolt.native-gen.json-test
   (:require [clojure.test :refer [deftest is testing]]
-            [native-gen.json :as json]))
+            [noonian.jolt.native-gen.json :as json]))
 
 (deftest scalars
   (is (= 1 (json/parse "1")))

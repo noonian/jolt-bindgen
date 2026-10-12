@@ -1,8 +1,8 @@
-(ns native-gen.macros-test
+(ns noonian.jolt.native-gen.macros-test
   (:require [clojure.test :refer [deftest is testing]]
             [clojure.string :as str]
-            [native-gen.macros :as macros]
-            [native-gen.fixture :as fx]))
+            [noonian.jolt.native-gen.macros :as macros]
+            [noonian.jolt.native-gen.fixture :as fx]))
 
 (def dd-output
   "What clang -E -dD prints: line markers naming the file, then directives."

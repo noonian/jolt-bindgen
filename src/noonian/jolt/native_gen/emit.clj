@@ -1,10 +1,10 @@
-(ns native-gen.emit
+(ns noonian.jolt.native-gen.emit
   "Render what was extracted as jolt source, one namespace per header: each
   target's view becomes a list of entries, the lists are merged, and where
   targets define a name differently the definition is chosen at load time. C
   identifiers are kept verbatim so generated names line up with the library's
   own documentation; an ergonomic layer on top chooses Clojure names."
-  (:require [native-gen.types :as types]
+  (:require [noonian.jolt.native-gen.types :as types]
             [clojure.string :as str]))
 
 (defn header-ns

@@ -1,10 +1,10 @@
-(ns native-gen.fixture
+(ns noonian.jolt.native-gen.fixture
   "The header under test/fixtures, run through clang once per test run: a
   manifest writing into a fresh temporary directory, the preprocessed text
   and the extracted IR."
-  (:require [native-gen.clang :as clang]
-            [native-gen.ast :as ast]
-            [native-gen.core :as core]
+  (:require [noonian.jolt.native-gen.clang :as clang]
+            [noonian.jolt.native-gen.ast :as ast]
+            [noonian.jolt.native-gen.core :as core]
             [clojure.java.io :as io]))
 
 (def dir (str (io/file (System/getProperty "user.dir") "test" "fixtures")))

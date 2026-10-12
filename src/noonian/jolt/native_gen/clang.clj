@@ -1,7 +1,7 @@
-(ns native-gen.clang
+(ns noonian.jolt.native-gen.clang
   "Drive clang: preprocess a header set, dump its AST as JSON, and have it
   parse small C probes, whose constants it folds without anything being run."
-  (:require [native-gen.json :as json]
+  (:require [noonian.jolt.native-gen.json :as json]
             [clojure.java.shell :as sh]
             [clojure.string :as str]
             [clojure.java.io :as io]))

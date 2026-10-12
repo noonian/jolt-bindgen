@@ -1,11 +1,11 @@
-(ns native-gen.main
-  (:require [native-gen.core :as core]))
+(ns noonian.jolt.native-gen.main
+  (:require [noonian.jolt.native-gen.core :as core]))
 
 (defn -main [& args]
   (let [check? (some #{"--check"} args)
         manifest-path (first (remove #{"--check"} args))]
     (when-not manifest-path
-      (println "usage: jolt -m native-gen.main [--check] path/to/manifest.edn")
+      (println "usage: jolt -m noonian.jolt.native-gen.main [--check] path/to/manifest.edn")
       (System/exit 2))
     (let [manifest (core/load-manifest manifest-path)
           differs (if check?

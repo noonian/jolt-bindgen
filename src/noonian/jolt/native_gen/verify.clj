@@ -1,10 +1,10 @@
-(ns native-gen.verify
+(ns noonian.jolt.native-gen.verify
   "A C probe whose constants are the sizeof, alignment and every scalar field
   offset of each generated record, folded by clang, so the layouts jolt
   computes can be checked against the compiler's for each target."
-  (:require [native-gen.clang :as clang]
-            [native-gen.ast :as ast]
-            [native-gen.types :as types]
+  (:require [noonian.jolt.native-gen.clang :as clang]
+            [noonian.jolt.native-gen.ast :as ast]
+            [noonian.jolt.native-gen.types :as types]
             [clojure.string :as str]
             [clojure.java.io :as io]))
 

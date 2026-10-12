@@ -1,4 +1,4 @@
-(ns native-gen.core-test
+(ns noonian.jolt.native-gen.core-test
   "The classifier over the fixture, then a whole run: the files it writes,
   and the generated bindings loaded against the fixture library and called."
   (:require [clojure.test :refer [deftest is testing]]
@@ -7,8 +7,8 @@
             [clojure.java.shell :as sh]
             [clojure.edn :as edn]
             [jolt.ffi :as ffi]
-            [native-gen.core :as core]
-            [native-gen.fixture :as fx]))
+            [noonian.jolt.native-gen.core :as core]
+            [noonian.jolt.native-gen.fixture :as fx]))
 
 (deftest classify
   (let [ir @fx/ir

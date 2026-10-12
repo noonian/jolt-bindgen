@@ -1,7 +1,7 @@
-(ns native-gen.emit-test
+(ns noonian.jolt.native-gen.emit-test
   (:require [clojure.test :refer [deftest is testing]]
             [clojure.string :as str]
-            [native-gen.emit :as emit]))
+            [noonian.jolt.native-gen.emit :as emit]))
 
 (deftest header-namespaces
   (is (= "sdl3.ffi.video" (emit/header-ns {:ns-prefix "sdl3.ffi" :strip-prefix "SDL_"} "/x/SDL3/SDL_video.h")))
