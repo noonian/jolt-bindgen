@@ -45,6 +45,22 @@
            (macros/scan "# 1 \"/proj/fixture.h\"\n#define FX_A\n#define FX_A 2"
                         {:prefixes ["FX_"] :exclude #{} :file-pred (constantly true)})))))
 
+(deftest string-literals
+  (is (= "fixture" (macros/unescape "\"fixture\"")))
+  (is (= "a\"b\\c\n\tz" (macros/unescape "\"a\\\"b\\\\c\\n\\tz\"")))
+  (testing "bytes outside ASCII come as octal escapes of their UTF-8"
+    (is (= "café €" (macros/unescape "\"caf\\303\\251 \\342\\202\\254\""))))
+  (testing "hex escapes, and an encoding prefix before the quote"
+    (is (= "A!" (macros/unescape "u8\"\\x41\\041\"")))))
+
+(deftest ir-doubles
+  (is (= 3.0 (macros/ir-double "3.000000e+00")))
+  (is (= -0.5 (macros/ir-double "-5.000000e-01")))
+  (testing "a value with no exact decimal is printed as its bits"
+    (is (= (/ 1.0 3) (macros/ir-double "0x3FD5555555555555")))
+    (is (= (/ -1.0 3) (macros/ir-double "0xBFD5555555555555")))
+    (is (= ##Inf (macros/ir-double "0x7FF0000000000000")))))
+
 (deftest evaluate-fixture
   (let [m @fx/manifest
         cands (macros/candidates @fx/preprocessed {:prefixes (:macro-prefixes m)
@@ -59,9 +75,14 @@
     (is (= {:type :uint :value "8"} (value "FX_FLAG")))
     (is (= {:type :int :value "-7"} (value "FX_NEGATIVE")))
     (is (= {:type :bool :value true} (value "FX_TRUE")))
+    (testing "a floating-point expression is folded, to the last bit"
+      (is (= {:type :double :value (/ 1.0 3)} (value "FX_THIRD"))))
+    (testing "a string arrives as its text, not as its spelling"
+      (is (= {:type :string :value "café \"q\"\nend"} (value "FX_ESCAPED"))))
     (is (str/ends-with? (:file (values "FX_VERSION")) "fixture.h"))
     (testing "a macro that is not an expression is pruned with the compiler's words, and the rest survive"
-      (is (= #{"FX_TYPE_NAME"} (set (keys pruned))))
-      (is (string? (pruned "FX_TYPE_NAME"))))
-    (is (= #{"FX_VERSION" "FX_NAME" "FX_SCALE" "FX_BIG" "FX_FLAG" "FX_NEGATIVE" "FX_TRUE"}
+      (is (= #{"FX_TYPE_NAME" "FX_NULL"} (set (keys pruned))))
+      (is (string? (pruned "FX_TYPE_NAME")))
+      (is (= "a constant of type void *" (pruned "FX_NULL"))))
+    (is (= #{"FX_VERSION" "FX_NAME" "FX_SCALE" "FX_BIG" "FX_FLAG" "FX_NEGATIVE" "FX_TRUE" "FX_THIRD" "FX_ESCAPED"}
            (set (keys values))))))

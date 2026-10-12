@@ -16,6 +16,9 @@
 #define FX_FLAG (1u << 3)
 #define FX_NEGATIVE (-7)
 #define FX_TRUE ((_Bool)1)
+#define FX_THIRD (1.0 / 3)               /* folded by the compiler, not a literal */
+#define FX_ESCAPED "caf\u00e9 \"q\"\n" "end" /* escapes, UTF-8, concatenation */
+#define FX_NULL ((void *)0)              /* a pointer: no jolt constant */
 #define FX_TYPE_NAME FX_Point            /* not an expression: pruned */
 #define FX_EXCLUDED 1                    /* listed in :macro-exclude */
 #define FX_FUNCTION_LIKE(x) ((x) + 1)    /* function-like: never a candidate */
@@ -23,7 +26,7 @@
 
 typedef enum FX_Mode { FX_MODE_A, FX_MODE_B = 5, FX_MODE_C } FX_Mode;
 typedef enum { FX_ANON_X = 1, FX_ANON_Y } FX_Anon;
-enum { FX_LOOSE_A = 3, FX_LOOSE_B };     /* never named: constants only */
+enum { FX_LOOSE_A = 3, FX_LOOSE_B, FX_LOOSE_U = 1u << 4, FX_LOOSE_N }; /* never named: constants only */
 
 typedef struct FX_Point { int32_t x; int32_t y; } FX_Point;
 typedef struct FX_Rect { FX_Point origin; float size[2]; uint8_t tag; } FX_Rect;

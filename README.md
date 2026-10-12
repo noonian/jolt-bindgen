@@ -6,9 +6,11 @@ functions, structs, enums and constants wanted; output is a `.jolt`
 namespace of `jolt.ffi/defcfn` forms, `ffi/layout` descriptors and
 constants, the struct layouts measured by the C compiler (`gen/layouts.edn`),
 a generated layout test, and a report of what was skipped and why. Object-like
-macros are evaluated by a generated C probe, so the compiler decides each
-constant's value and type; a typedef from another header (`time_t`) resolves
-to the type clang desugars it to; functions listed as blocking are bound with
+macros and struct layouts are evaluated by generated C probes that clang
+parses and never runs, so the compiler decides each constant's value and type
+and each field's offset, for whatever target it is parsing for; a typedef
+from another header (`time_t`) resolves to the type clang desugars it to;
+functions listed as blocking are bound with
 `:blocking` and their `const char *` parameters as pointers; variadic
 functions are bound with the bare `:&` marker, unless they are blocking or
 pass an aggregate by value, which jolt does not combine with it; a `va_list`

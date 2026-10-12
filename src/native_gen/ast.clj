@@ -30,12 +30,36 @@
     {:type (get t "qualType")
      :desugared (get t "desugaredQualType" (get t "qualType"))}))
 
+(defn folded-value
+  "The value clang folded an enum constant's initialiser to, as it prints it:
+  a string, or nil when the constant has none. The folded expression sits
+  under the conversion to the constant's own type when the two differ, as
+  they do for `1u << 3`."
+  [constant]
+  (loop [n (first (get constant "inner"))]
+    (cond
+      (contains? n "value") (get n "value")
+      (= "ImplicitCastExpr" (get n "kind")) (recur (first (get n "inner")))
+      :else nil)))
+
+(defn enum-values
+  "The folded values of an EnumDecl's constants, in order."
+  [enum-decl]
+  (->> (get enum-decl "inner")
+       (filter #(= "EnumConstantDecl" (get % "kind")))
+       (mapv folded-value)))
+
 (defn- enum-constants [node]
   (loop [cs (get node "inner") prev -1 acc []]
     (if-let [c (first cs)]
       (if (= "EnumConstantDecl" (get c "kind"))
-        (let [explicit (some-> c (get "inner") first (get "value"))
-              v (if explicit (Long/parseLong explicit) (inc prev))]
+        (let [explicit (folded-value c)
+              ;; a constant of boolean type is printed as the word
+              v (case explicit
+                  nil (inc prev)
+                  "true" 1
+                  "false" 0
+                  (Long/parseLong explicit))]
           (recur (rest cs) v (conj acc [(get c "name") v])))
         (recur (rest cs) prev acc))
       acc)))

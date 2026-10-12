@@ -1,7 +1,8 @@
 (ns native-gen.clang
-  "Drive clang: preprocess a header set, dump its AST as JSON, and compile and
-  run small C probe programs."
-  (:require [clojure.java.shell :as sh]
+  "Drive clang: preprocess a header set, dump its AST as JSON, and have it
+  parse small C probes, whose constants it folds without anything being run."
+  (:require [native-gen.json :as json]
+            [clojure.java.shell :as sh]
             [clojure.string :as str]
             [clojure.java.io :as io]))
 
@@ -39,21 +40,33 @@
     (apply run "clang" "-Xclang" "-ast-dump=json" "-fsyntax-only" "-w"
            (concat (flags manifest) [(str pre)]))))
 
-(defn compile-errors
-  "Compile a C source file. Returns nil on success, or a vector of
-  {:line n :message s} for each error clang reports."
-  [manifest c-file out-file]
-  (let [{:keys [exit err]} (apply sh/sh "clang" "-w" "-ferror-limit=0" "-o" out-file
-                                  (concat (flags manifest) [c-file]))]
-    (when-not (zero? exit)
-      (->> (str/split-lines err)
-           (keep #(when-let [[_ line msg] (re-find #":(\d+):\d+: error: (.*)$" %)]
-                    {:line (Long/parseLong line) :message msg}))
-           vec))))
+(def probe-prefix
+  "What every declaration in a probe is named with, so its dump can be
+  narrowed to them."
+  "nativegen_probe_")
 
-(defn compile-and-run
-  "Compile and run a C probe. Returns its stdout."
-  [manifest c-file out-file & run-args]
-  (when-let [errors (compile-errors manifest c-file out-file)]
-    (throw (ex-info "probe failed to compile" {:errors errors :file c-file})))
-  (apply run out-file run-args))
+(defn probe-ast
+  "Parse a probe source, without compiling or running it, and dump the
+  declarations named with `probe-prefix`. Returns {:decls [node ...] :errors
+  [{:line n :message s} ...]}: clang dumps what it could parse beside the
+  errors it reports, each of which is on a line of the probe. An error
+  anywhere else is the headers' own, and is thrown."
+  [manifest c-file]
+  (let [{:keys [exit out err]} (apply sh/sh "clang" "-Xclang" "-ast-dump=json"
+                                      "-Xclang" (str "-ast-dump-filter=" probe-prefix)
+                                      "-fsyntax-only" "-w" "-ferror-limit=0"
+                                      (concat (flags manifest) [c-file]))
+        errors (keep #(when-let [[_ file line msg] (re-find #"^(.*?):(\d+):\d+: (?:fatal )?error: (.*)$" %)]
+                        {:file file :line (Long/parseLong line) :message msg})
+                     (str/split-lines err))]
+    (when (or (some #(not= c-file (:file %)) errors)
+              (and (not (zero? exit)) (empty? errors)))
+      (throw (ex-info "probe failed to parse" {:file c-file :exit exit :err err})))
+    {:decls (json/parse-all out)
+     :errors (mapv #(dissoc % :file) errors)}))
+
+(defn probe-ir
+  "The LLVM IR clang generates for a probe source, as text. Nothing is linked
+  or run; the IR is where a floating-point constant appears folded."
+  [manifest c-file]
+  (apply run "clang" "-S" "-emit-llvm" "-w" "-o" "-" (concat (flags manifest) [c-file])))

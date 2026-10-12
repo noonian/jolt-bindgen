@@ -35,3 +35,7 @@
   (is (thrown? Exception (json/parse "[1,")))
   (is (thrown? Exception (json/parse "{\"a\" 1}")))
   (is (thrown? Exception (json/parse "1 2"))))
+
+(deftest documents-in-a-row
+  (is (= [{"a" 1} [2] {"b" nil}] (json/parse-all "{\"a\": 1}\n[2]\n\n{\"b\": null}\n")))
+  (is (= [] (json/parse-all "  \n"))))

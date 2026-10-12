@@ -1,10 +1,11 @@
 (ns native-gen.macros
   "Object-like #define constants. Their names and bodies come from the
-  preprocessor's -dD output; their values come from compiling and running a
-  probe program, so the C compiler does the evaluation and reports each
-  value's type category through _Generic. Macros that are not constant
-  expressions fail to compile and are pruned from the probe."
+  preprocessor's -dD output; their types and values come from probes the C
+  compiler parses, so it does the evaluation, and nothing is run: the values
+  are those of whatever target clang is parsing for. Macros that are not
+  constant expressions are rejected by the compiler and pruned."
   (:require [native-gen.clang :as clang]
+            [native-gen.ast :as ast]
             [clojure.string :as str]
             [clojure.java.io :as io]))
 
@@ -54,61 +55,142 @@
   [preprocessed opts]
   (:candidates (scan preprocessed opts)))
 
-(def ^:private probe-prelude
-  "Every association of a C generic selection is type-checked even when it is
-  not chosen, so the branches select a printing function and only the chosen
-  one is applied to the value. A float is printed as a double: a jolt
-  constant is a double either way."
-  "#include <stdio.h>
-static void pf(const char *n, double v) { printf(\"d %s %.17g\\n\", n, v); }
-static void ps(const char *n, const char *v) { printf(\"s %s %s\\n\", n, v); }
-static void pb(const char *n, int v) { printf(\"b %s %d\\n\", n, v); }
-static void pu(const char *n, unsigned long long v) { printf(\"u %s %llu\\n\", n, v); }
-static void pi(const char *n, long long v) { printf(\"i %s %lld\\n\", n, v); }
-#define P(name, expr) _Generic((expr), \\
-  float: pf, double: pf, \\
-  char *: ps, const char *: ps, \\
-  _Bool: pb, \\
-  unsigned long long: pu, unsigned long: pu, unsigned int: pu, \\
-  default: pi)(name, (expr))
-int main(void) {
-")
+(defn- includes [headers]
+  (str (str/join "\n" (map #(str "#include <" % ">") headers)) "\n"))
 
-(defn- probe-source [headers names]
-  (str (str/join "\n" (map #(str "#include <" % ">") headers)) "\n"
-       probe-prelude
-       (str/join "\n" (map #(str "  P(\"" % "\", (" % "));") names))
-       "\n  return 0;\n}\n"))
+(defn- probe-name [i]
+  (str clang/probe-prefix i))
 
-(defn- parse-line [line]
-  (when-let [[_ kind name value] (re-find #"^([dsbui]) (\S+) ?(.*)$" line)]
-    [name (case kind
-            "d" {:type :double :value (Double/parseDouble value)}
-            "s" {:type :string :value value}
-            "b" {:type :bool :value (= "1" value)}
-            "u" {:type :uint :value value}
-            "i" {:type :int :value value})]))
+(defn- settle
+  "Write a probe with one line of C per name, (line-fn probe-name name), after
+  the headers, and have clang parse it; drop each name whose line it rejects,
+  with the compiler's message, and try again until what is left parses.
+  Returns {:names [...] :decls {name node} :pruned {name message}}."
+  [{:keys [headers] :as manifest} c-file line-fn names]
+  (loop [names (vec names) pruned {} round 0]
+    (if (empty? names)
+      {:names [] :decls {} :pruned pruned}
+      (let [_ (spit c-file (str (includes headers)
+                                (str/join "\n" (map-indexed (fn [i n] (line-fn (probe-name i) n)) names))
+                                "\n"))
+            {:keys [decls errors]} (clang/probe-ast manifest c-file)
+            ;; the first error on a line is the one that names the cause
+            bad (into {} (keep (fn [{:keys [line message]}]
+                                 (let [idx (- line (count headers) 1)]
+                                   (when (< -1 idx (count names))
+                                     [(nth names idx) message])))
+                               (reverse errors)))]
+        (cond
+          (empty? errors)
+          (let [by-probe (zipmap (map probe-name (range)) names)]
+            {:names names :pruned pruned
+             :decls (into {} (keep (fn [d] (when-let [n (by-probe (get d "name"))] [n d])) decls))})
+
+          (or (empty? bad) (> round 25))
+          (throw (ex-info "macro probe: could not attribute errors" {:errors errors :round round :file c-file}))
+
+          :else (recur (vec (remove bad names)) (merge pruned bad) (inc round)))))))
+
+(defn- c-type [decl]
+  (let [t (get decl "type")]
+    (get t "desugaredQualType" (get t "qualType"))))
+
+(defn- kind
+  "The kind of constant a macro of this C type becomes, or nil when jolt has
+  none for it."
+  [type]
+  (cond
+    (contains? #{"float" "double" "long double"} type) :double
+    (contains? #{"char *" "const char *"} type) :string
+    (contains? #{"_Bool" "bool"} type) :bool
+    (str/ends-with? type "*") nil
+    (str/starts-with? type "unsigned") :uint
+    :else :int))
+
+(defn- string-literal
+  "The string literal a declaration is initialised with, as clang prints it,
+  through the casts and parentheses around it; nil when it is anything else."
+  [decl]
+  (loop [n (first (get decl "inner"))]
+    (case (get n "kind")
+      "StringLiteral" (get n "value")
+      ("ImplicitCastExpr" "ParenExpr" "CStyleCastExpr") (recur (first (get n "inner")))
+      nil)))
+
+(defn unescape
+  "The text of a C string literal as clang prints it: in its quotes, with its
+  escapes, and every character outside ASCII as the octal bytes of its UTF-8."
+  [literal]
+  (let [s (subs literal (inc (str/index-of literal "\"")) (dec (count literal)))
+        n (count s)]
+    (loop [i 0 bytes []]
+      (if (>= i n)
+        (String. (byte-array (map unchecked-byte bytes)) "UTF-8")
+        (let [c (nth s i)]
+          (if (not= c \\)
+            (recur (inc i) (conj bytes (int c)))
+            (let [e (nth s (inc i))]
+              (cond
+                (Character/isDigit e)
+                (let [digits (re-find #"^[0-7]{1,3}" (subs s (inc i)))]
+                  (recur (+ i 1 (count digits)) (conj bytes (Long/parseLong digits 8))))
+
+                (= e \x)
+                (let [digits (re-find #"^[0-9a-fA-F]+" (subs s (+ i 2)))]
+                  (recur (+ i 2 (count digits)) (conj bytes (Long/parseLong digits 16))))
+
+                :else
+                (recur (+ i 2) (conj bytes (get {\n 10 \t 9 \r 13 \a 7 \b 8 \f 12 \v 11} e (int e))))))))))))
+
+(defn ir-double
+  "A double as LLVM IR prints it: in decimal when that is exact, and otherwise
+  as the sixteen hex digits of its bits."
+  [s]
+  (if (str/starts-with? s "0x")
+    (let [top (Character/digit (nth s 2) 16)
+          low (Long/parseLong (str (bit-and top 7) (subs s 3)) 16)]
+      (Double/longBitsToDouble (if (> top 7) (+ Long/MIN_VALUE low) low)))
+    (Double/parseDouble s)))
 
 (defn evaluate
-  "Compile a probe for the candidate macros, pruning any whose line fails to
-  compile, then run it. Returns {:values {name {:type k :value v :file f}}
-  :pruned {name reason}}."
-  [{:keys [headers work-dir] :as manifest} candidates]
-  (let [c-file (str (io/file work-dir "macro_probe.c"))
-        bin (str (io/file work-dir "macro_probe"))
-        header-lines (+ (count headers) (count (str/split-lines probe-prelude)))]
-    (loop [names (vec (sort (keys candidates))) pruned {} round 0]
-      (spit c-file (probe-source headers names))
-      (if-let [errors (clang/compile-errors manifest c-file bin)]
-        (let [bad (into {} (keep (fn [{:keys [line message]}]
-                                   (let [idx (- line header-lines 1)]
-                                     (when (< -1 idx (count names))
-                                       [(nth names idx) message])))
-                                 errors))]
-          (when (or (empty? bad) (> round 25))
-            (throw (ex-info "macro probe: could not attribute compile errors" {:errors errors :round round})))
-          (recur (vec (remove bad names)) (merge pruned bad) (inc round)))
-        (let [out (clang/compile-and-run manifest c-file bin)
-              values (into {} (keep parse-line (str/split-lines out)))]
-          {:values (into {} (map (fn [[n v]] [n (assoc v :file (get-in candidates [n :file]))]) values))
-           :pruned pruned})))))
+  "Have clang evaluate the candidate macros, three probes that it parses and
+  never runs: one declares a variable of each macro's own type, which gives
+  the type and prunes whatever is not an expression; one makes each integer
+  an enum constant, which clang folds; one makes each floating-point value a
+  global, which is folded in the IR. Returns {:values {name {:type k :value
+  v :file f}} :pruned {name reason}}."
+  [{:keys [work-dir] :as manifest} candidates]
+  (let [file #(str (io/file work-dir %))
+        typed (settle manifest (file "macro_types.c")
+                      #(str "__auto_type " %1 " = (" %2 ");")
+                      (sort (keys candidates)))
+        types (into {} (map (fn [[n d]] [n (c-type d)])) (:decls typed))
+        of-kind (fn [kinds] (filter #(contains? kinds (some-> (types %) kind)) (:names typed)))
+        ints (settle manifest (file "macro_values.c")
+                     #(str "enum " %1 " { " %1 "_v = (" %2 ") };")
+                     (of-kind #{:int :uint :bool}))
+        doubles (settle manifest (file "macro_doubles.c")
+                        #(str "const double " %1 " = (" %2 ");")
+                        (of-kind #{:double}))
+        folded (when (seq (:names doubles))
+                 (into {} (map (fn [[_ i v]] [(nth (:names doubles) (Long/parseLong i)) (ir-double v)]))
+                       (re-seq (re-pattern (str "(?m)^@" clang/probe-prefix "(\\d+) = .*?\\bdouble ([^,\\s]+)"))
+                               (clang/probe-ir manifest (file "macro_doubles.c")))))
+        ;; a constant, or the reason there is none
+        constant (fn [n]
+                   (let [type (types n)
+                         k (some-> type kind)]
+                     (case k
+                       nil (if type (str "a constant of type " type) "not declared by the probe")
+                       :string (if-let [literal (string-literal (get-in typed [:decls n]))]
+                                 {:type :string :value (unescape literal)}
+                                 "a string that is not a literal")
+                       :double (if-let [v (get folded n)]
+                                 {:type :double :value v}
+                                 (get-in doubles [:pruned n] "not a floating-point constant"))
+                       (if-let [v (some-> (get-in ints [:decls n]) ast/enum-values first)]
+                         {:type k :value (if (= :bool k) (not (contains? #{"false" "0"} v)) v)}
+                         (get-in ints [:pruned n] "not an integer constant")))))
+        results (map (juxt identity constant) (:names typed))]
+    {:values (into {} (keep (fn [[n r]] (when (map? r) [n (assoc r :file (get-in candidates [n :file]))])) results))
+     :pruned (into (:pruned typed) (filter (comp string? second) results))}))

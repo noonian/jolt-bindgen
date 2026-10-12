@@ -1,8 +1,9 @@
 (ns native-gen.verify
-  "A C probe that prints sizeof, alignment and every scalar field offset of
-  each generated record, so the layouts jolt computes can be checked against
-  the compiler's on each platform."
+  "A C probe whose constants are the sizeof, alignment and every scalar field
+  offset of each generated record, folded by clang, so the layouts jolt
+  computes can be checked against the compiler's for each target."
   (:require [native-gen.clang :as clang]
+            [native-gen.ast :as ast]
             [native-gen.types :as types]
             [clojure.string :as str]
             [clojure.java.io :as io]))
@@ -25,39 +26,47 @@
   [{:keys [name kind typedef-named?]}]
   (if typedef-named? name (str (clojure.core/name kind) " " name)))
 
-(defn probe-source [headers ctx records]
-  (str (str/join "\n" (map #(str "#include <" % ">") headers))
-       "\n#include <stdio.h>\n#include <stddef.h>\nint main(void) {\n"
+(defn probe-source
+  "One enum per record, named by its index: its size, its alignment, then the
+  offset of each path, as constants for clang to fold."
+  [headers records paths]
+  (str (str/join "\n" (map #(str "#include <" % ">") headers)) "\n"
        (str/join "\n"
-                 (for [r records
-                       :let [desc (types/record-descriptor ctx r)
-                             n (:name r)
-                             c (c-spelling r)]
-                       line (cons (str "  printf(\"R " n " %zu %zu\\n\", sizeof(" c "), _Alignof(" c "));")
-                                  (for [path (scalar-paths desc)]
-                                    (str "  printf(\"F " n " " (str/join "." path) " %zu\\n\", offsetof(" c ", "
-                                         (str/join "." path) "));")))]
-                   line))
-       "\n  return 0;\n}\n"))
-
-(defn- parse [out]
-  (reduce (fn [m line]
-            (let [[k & xs] (str/split line #" ")]
-              (case k
-                "R" (let [[n size align] xs]
-                      (assoc-in m [n :size+align] [(Long/parseLong size) (Long/parseLong align)]))
-                "F" (let [[n path off] xs]
-                      (assoc-in m [n :fields path] (Long/parseLong off)))
-                m)))
-          {} (str/split-lines out)))
+                 (map-indexed
+                  (fn [i r]
+                    (let [e (str clang/probe-prefix i)
+                          c (c-spelling r)]
+                      (str "enum " e " { " e "_size = sizeof(" c "), " e "_align = _Alignof(" c ")"
+                           (str/join (map-indexed (fn [j path]
+                                                    (str ", " e "_f" j " = __builtin_offsetof(" c ", " (str/join "." path) ")"))
+                                                  (nth paths i)))
+                           " };")))
+                  records))
+       "\n"))
 
 (defn measure
-  "Run the probe. Returns {record-name {:size+align [s a] :fields {\"a.b\" off}}}."
+  "Have clang fold the probe; nothing is compiled or run, so the layouts are
+  those of the target clang is parsing for. Returns {record-name {:size+align
+  [s a] :fields {\"a.b\" off}}}."
   [{:keys [headers work-dir] :as manifest} ctx records]
-  (let [c-file (str (io/file work-dir "layout_probe.c"))
-        bin (str (io/file work-dir "layout_probe"))]
-    (spit c-file (probe-source headers ctx records))
-    (parse (clang/compile-and-run manifest c-file bin))))
+  (if (empty? records)
+    {}
+    (let [c-file (str (io/file work-dir "layout_probe.c"))
+          records (vec records)
+          paths (mapv #(scalar-paths (types/record-descriptor ctx %)) records)
+          _ (spit c-file (probe-source headers records paths))
+          {:keys [decls errors]} (clang/probe-ast manifest c-file)
+          index (zipmap (map #(str clang/probe-prefix %) (range)) (range (count records)))]
+      (when (seq errors)
+        (throw (ex-info "layout probe failed to parse" {:errors errors :file c-file})))
+      (into {}
+            (keep (fn [d]
+                    (when-let [i (index (get d "name"))]
+                      (let [[size align & offsets] (map #(Long/parseLong %) (ast/enum-values d))]
+                        [(:name (nth records i))
+                         (cond-> {:size+align [size align]}
+                           (seq offsets) (assoc :fields (zipmap (map #(str/join "." %) (nth paths i)) offsets)))]))))
+            decls))))
 
 (defn test-source
   "A clojure.test namespace that checks every generated layout against the

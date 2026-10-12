@@ -128,3 +128,14 @@
          j (skip-ws s j)]
      (when (< j (count s)) (fail s j "trailing content"))
      v)))
+
+(defn parse-all
+  "Parse the JSON documents that follow one another in `s`, which is how clang
+  prints a dump narrowed by -ast-dump-filter: a vector of their values."
+  [^String s]
+  (let [n (count s)]
+    (loop [i (skip-ws s 0) acc []]
+      (if (>= i n)
+        acc
+        (let [[v j] (read-value s i nil nil)]
+          (recur (skip-ws s j) (conj acc v)))))))

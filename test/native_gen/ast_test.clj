@@ -30,7 +30,8 @@
       (is (= [["FX_MODE_A" 0] ["FX_MODE_B" 5] ["FX_MODE_C" 6]] (get-in enums ["FX_Mode" :constants])))
       (is (= [["FX_ANON_X" 1] ["FX_ANON_Y" 2]] (get-in enums ["FX_Anon" :constants])))
       (testing "and one nothing names, kept for its constants"
-        (is (= [[["FX_LOOSE_A" 3] ["FX_LOOSE_B" 4]]] (map :constants anonymous-enums)))))
+        (is (= [[["FX_LOOSE_A" 3] ["FX_LOOSE_B" 4] ["FX_LOOSE_U" 16] ["FX_LOOSE_N" 17]]]
+               (map :constants anonymous-enums)))))
     (testing "records"
       (is (= [:struct true] ((juxt :kind :complete?) (records "FX_Point"))))
       (is (= ["x" "y"] (map :name (:fields (records "FX_Point")))))

@@ -45,7 +45,7 @@
     (testing "the report, written and returned alike"
       (is (= report (edn/read-string (slurp (:report-out m)))))
       (is (= '[fixture.ffi] (map :ns (:namespaces report))))
-      (is (= {:functions 18 :records 8 :enums 3 :constants 7 :callbacks 2}
+      (is (= {:functions 18 :records 8 :enums 3 :constants 9 :callbacks 2}
              (:counts (first (:namespaces report)))))
       (is (= #{"fx_vlog" "fx_log_blocking" "fx_sum_points" "fx_value" "fx_tagged" "fx_bits" "fx_twice"}
              (set (keys (:skipped-functions report)))))
@@ -54,7 +54,7 @@
       (is (= {"FX_VaCallback" "va_list"} (:skipped-callbacks report)))
       (is (= {"fx_counter" "global variable of type int"} (:skipped-variables report)))
       (is (= {"FX_FUNCTION_LIKE" "function-like"} (:skipped-macros report)))
-      (is (= #{"FX_TYPE_NAME"} (set (keys (:pruned-macros report)))))
+      (is (= #{"FX_TYPE_NAME" "FX_NULL"} (set (keys (:pruned-macros report)))))
       (is (= {} (:skipped-names report))))
     (testing "the layouts were measured for every emitted record"
       (is (= #{"FX_Point" "FX_Rect" "FX_Value" "FX_Tagged" "FX_Named" "FX_Matrix" "FX_Vec2" "FX_Plain"} (set (keys layouts))))
@@ -77,6 +77,9 @@
       (is (str/includes? source "(def FX_MODE_B 5)"))
       (is (str/includes? source "(def FX_ANON_Y 2)"))
       (is (str/includes? source "(def FX_LOOSE_B 4)"))
+      (testing "an enum constant given as an unsigned expression, and the one after it"
+        (is (str/includes? source "(def FX_LOOSE_U 16)"))
+        (is (str/includes? source "(def FX_LOOSE_N 17)")))
       (is (str/includes? source "(def FX_Callback {"))
       (is (str/includes? source "(def FX_Nested {:args [:int :pointer :pointer], :ret :void})"))
       (is (not (str/includes? source "FX_VaCallback")))
