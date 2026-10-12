@@ -181,13 +181,35 @@
       :record (by-value r)
       {:unsupported (:reason r)})))
 
+(defn- split-params
+  "A parameter list cut at its top-level commas: a function-pointer parameter
+  has commas of its own."
+  [s]
+  (let [n (count s)]
+    (loop [i 0 depth 0 start 0 acc []]
+      (if (= i n)
+        (conj acc (str/trim (subs s start)))
+        (let [c (nth s i)]
+          (cond (= c \() (recur (inc i) (inc depth) start acc)
+                (= c \)) (recur (inc i) (dec depth) start acc)
+                (and (= c \,) (zero? depth)) (recur (inc i) depth (inc i) (conj acc (str/trim (subs s start i))))
+                :else (recur (inc i) depth start acc)))))))
+
 (defn callback-signature
   "For a function-pointer type string like \"_Bool (*)(void *, SDL_Event *)\",
-  return {:args [...] :ret kw} or nil."
+  return {:args [...] :ret kw}, or {:unsupported reason} when a parameter or
+  the return type has no callback spelling, or nil when the string is not a
+  function-pointer type at all."
   [ctx s]
   (when-let [[_ ret params] (re-matches #"(.*?)\s*\(\*\)\s*\((.*)\)" (str/trim s))]
-    (let [ps (if (= "void" (str/trim params)) [] (map str/trim (str/split params #",")))
-          args (mapv #(param-type ctx %) ps)
-          r (return-type ctx ret)]
-      (when (and (every? keyword? args) (or (keyword? r) (vector? r)))
+    (let [ps (if (contains? #{"" "void"} (str/trim params)) [] (split-params params))
+          args (mapv #(if (= "..." %)
+                        {:unsupported "variadic callback"}
+                        (let [a (param-type ctx %)]
+                          (if (vector? a) {:unsupported (str % " by value as a callback parameter")} a)))
+                     ps)
+          r (return-type ctx ret)
+          bad (filter map? (conj args r))]
+      (if (seq bad)
+        {:unsupported (str/join "; " (map :unsupported bad))}
         {:args args :ret r}))))

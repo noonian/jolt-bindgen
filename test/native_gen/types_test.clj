@@ -77,8 +77,16 @@
          (types/callback-signature ctx "_Bool (*)(void *, struct Point *)")))
   (is (= {:args [] :ret :void} (types/callback-signature ctx "void (*)(void)")))
   (is (= {:args [:int] :ret [:by-value point]} (types/callback-signature ctx "Point (*)(int)")))
-  (is (nil? (types/callback-signature ctx "int")))
-  (is (nil? (types/callback-signature ctx "void (*)(va_list)"))))
+  (testing "a function-pointer parameter keeps its own commas"
+    (is (= {:args [:int :pointer :pointer] :ret :void}
+           (types/callback-signature ctx "void (*)(int, void (*)(int, int), void *)"))))
+  (testing "not a function pointer"
+    (is (nil? (types/callback-signature ctx "int"))))
+  (testing "a callback with no spelling says why"
+    (is (= {:unsupported "va_list"} (types/callback-signature ctx "void (*)(va_list)")))
+    (is (= {:unsupported "variadic callback"} (types/callback-signature ctx "void (*)(const char *, ...)")))
+    (is (= {:unsupported "Point by value as a callback parameter"}
+           (types/callback-signature ctx "void (*)(Point)")))))
 
 (deftest fixture-types
   (let [ctx @fx/ir]

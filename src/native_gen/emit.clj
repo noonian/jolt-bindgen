@@ -89,7 +89,8 @@
     (when (seq enums)
       (emit! "\n;;; enums")
       (doseq [{:keys [name constants]} enums]
-        (when (claim! name)
+        ;; an enum the header never named has constants but no map
+        (when (and name (claim! name))
           (emit! (str "(def " name " {"
                       (str/join ", " (map (fn [[k v]] (str ":" k " " v)) constants))
                       "})")))

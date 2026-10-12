@@ -14,7 +14,11 @@ functions are bound with the bare `:&` marker, unless they are blocking or
 pass an aggregate by value, which jolt does not combine with it; a `va_list`
 parameter, or a union passed by value (alone or inside a struct), has no
 binding and is reported; records it cannot describe (bitfields, anonymous
-unions) are left out and reported.
+unions) are left out and reported. A struct or enum named only by its typedef
+takes that name, and an enum nothing names still gives its constants. A static
+function, a global variable, a callback type with no jolt spelling and a
+wanted macro that cannot be a constant are not bound, and each is in the
+report with the reason.
 
 It is the tool the sdl3, joltc-jlt and cimgui-jlt bindings are generated
 with, and not part of any of them. A binding project uses it through an

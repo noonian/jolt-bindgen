@@ -65,7 +65,10 @@
   (let [out (render {:enums [{:name "Mode" :constants [["A" 0] ["B" 5]]}]})]
     (is (str/includes? out "(def Mode {:A 0, :B 5})"))
     (is (str/includes? out "(def A 0)"))
-    (is (str/includes? out "(def B 5)"))))
+    (is (str/includes? out "(def B 5)")))
+  (testing "an enum the header never named has constants and no map"
+    (let [out (render {:enums [{:name nil :constants [["LOOSE" 3]]}]})]
+      (is (str/includes? out ";;; enums\n(def LOOSE 3)\n")))))
 
 (deftest records-and-callbacks
   (let [out (render {:records [(get-in ctx [:records "P"])] :callbacks {"Cb" {:args [:pointer] :ret :void}}})]

@@ -30,6 +30,21 @@
          (macros/candidates dd-output {:prefixes ["FX_"] :exclude #{"FX_EXCLUDED"}
                                        :file-pred #(str/includes? % "fixture.h")}))))
 
+(deftest skipped
+  (testing "a wanted macro that cannot be a constant is reported with the reason"
+    (is (= {"FX_FIXTURE_h_" "include guard"
+            "FX_FUNCTION_LIKE" "function-like"
+            "FX_EMPTY" "no value"
+            "FX_STATEMENT" "not a constant expression"
+            "FX_ATTR" "not a constant expression"
+            "FX_BUILTIN" "not a constant expression"}
+           (:skipped (macros/scan dd-output {:prefixes ["FX_"] :exclude #{"FX_EXCLUDED"}
+                                             :file-pred #(str/includes? % "fixture.h")})))))
+  (testing "a later definition replaces an earlier one"
+    (is (= {:candidates {"FX_A" {:body "2" :file "/proj/fixture.h"}} :skipped {}}
+           (macros/scan "# 1 \"/proj/fixture.h\"\n#define FX_A\n#define FX_A 2"
+                        {:prefixes ["FX_"] :exclude #{} :file-pred (constantly true)})))))
+
 (deftest evaluate-fixture
   (let [m @fx/manifest
         cands (macros/candidates @fx/preprocessed {:prefixes (:macro-prefixes m)

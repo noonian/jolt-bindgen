@@ -6,4 +6,5 @@
     (println "usage: jolt -m native-gen.main path/to/manifest.edn")
     (System/exit 2))
   (core/generate! (core/load-manifest manifest-path))
-  nil)
+  ;; the threads clojure.java.shell ran clang on would hold the process open
+  (shutdown-agents))

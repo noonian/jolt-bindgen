@@ -31,3 +31,6 @@ void fx_wait(int ms) { (void)ms; }
 void fx_say(const char *s, int n) { snprintf(last_log, sizeof last_log, "%s/%d", s, n); }
 void fx_log_blocking(const char *fmt, ...) { (void)fmt; }
 int fx_sum_points(FX_Point p, ...) { return p.x + p.y; }
+int fx_counter = 0;
+FX_Vec2 fx_vec2(float x, float y) { FX_Vec2 v = {x, y}; return v; }
+double fx_plain(struct FX_Plain p) { return p.a + p.b; }

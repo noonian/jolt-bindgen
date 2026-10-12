@@ -19,16 +19,23 @@
                :else [(conj prefix (clojure.core/name name))]))
            fields)))
 
+(defn- c-spelling
+  "How C names a record: with its tag, since a typedef of the same name is
+  only a convention, unless a typedef is the one name it has."
+  [{:keys [name kind typedef-named?]}]
+  (if typedef-named? name (str (clojure.core/name kind) " " name)))
+
 (defn probe-source [headers ctx records]
   (str (str/join "\n" (map #(str "#include <" % ">") headers))
        "\n#include <stdio.h>\n#include <stddef.h>\nint main(void) {\n"
        (str/join "\n"
                  (for [r records
                        :let [desc (types/record-descriptor ctx r)
-                             n (:name r)]
-                       line (cons (str "  printf(\"R " n " %zu %zu\\n\", sizeof(" n "), _Alignof(" n "));")
+                             n (:name r)
+                             c (c-spelling r)]
+                       line (cons (str "  printf(\"R " n " %zu %zu\\n\", sizeof(" c "), _Alignof(" c "));")
                                   (for [path (scalar-paths desc)]
-                                    (str "  printf(\"F " n " " (str/join "." path) " %zu\\n\", offsetof(" n ", "
+                                    (str "  printf(\"F " n " " (str/join "." path) " %zu\\n\", offsetof(" c ", "
                                          (str/join "." path) "));")))]
                    line))
        "\n  return 0;\n}\n"))

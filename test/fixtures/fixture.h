@@ -23,6 +23,7 @@
 
 typedef enum FX_Mode { FX_MODE_A, FX_MODE_B = 5, FX_MODE_C } FX_Mode;
 typedef enum { FX_ANON_X = 1, FX_ANON_Y } FX_Anon;
+enum { FX_LOOSE_A = 3, FX_LOOSE_B };     /* never named: constants only */
 
 typedef struct FX_Point { int32_t x; int32_t y; } FX_Point;
 typedef struct FX_Rect { FX_Point origin; float size[2]; uint8_t tag; } FX_Rect;
@@ -32,8 +33,15 @@ typedef struct FX_Bits { unsigned a : 3; unsigned b : 5; } FX_Bits;
 typedef struct FX_Anonymous { int kind; union { int i; float f; }; } FX_Anonymous;
 typedef struct FX_Named { int kind; union { int i; float f; } u; } FX_Named;
 typedef struct FX_Matrix { float m[3][4]; } FX_Matrix;
+typedef struct { float x, y; } FX_Vec2;  /* named only by its typedef */
+struct FX_Plain { int a; double b; };    /* no typedef: named only by its tag */
 typedef struct FX_Opaque FX_Opaque;
 typedef bool (*FX_Callback)(void *userdata, FX_Point *p);
+typedef void (*FX_Nested)(int code, void (*inner)(int, int), void *userdata);
+typedef void (*FX_VaCallback)(const char *fmt, va_list ap);
+
+extern int fx_counter;
+static inline int fx_twice(int x) { return x * 2; }
 
 int fx_add(int a, int b);
 const char *fx_name(void);
@@ -57,4 +65,6 @@ void fx_wait(int ms);
 void fx_say(const char *s, int n);
 void fx_log_blocking(const char *fmt, ...);
 int fx_sum_points(FX_Point p, ...);
+FX_Vec2 fx_vec2(float x, float y);
+double fx_plain(struct FX_Plain p);
 #endif

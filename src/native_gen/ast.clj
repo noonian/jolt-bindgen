@@ -96,50 +96,71 @@
                 (filter #(= "ParmVarDecl" (get % "kind")))
                 (mapv #(assoc (type-of %) :name (get % "name"))))
    :variadic? (boolean (get node "variadic"))
+   :static? (= "static" (get node "storageClass"))
    :file (get node "_file")})
+
+(defn- keep-unnamed
+  "An anonymous enum that no typedef named still declares its constants; an
+  anonymous record that nothing named cannot be referred to, and is dropped."
+  [ir pending]
+  (if (:constants pending)
+    (update ir :anonymous-enums conj pending)
+    ir))
 
 (defn extract
   "Return {:typedefs {name ir} :system-typedefs {name ir} :records {name ir}
-  :enums {name ir} :functions [ir ...]} for the top-level declarations whose
-  file satisfies `file-pred`. A typedef from any other file is kept apart
-  under :system-typedefs, with the spelling clang desugars it to, so a type
-  that reaches a binding through one (time_t, size_t) still resolves. Records
-  are merged by name so a forward declaration does not hide the later
-  complete definition. An anonymous enum takes the name of the typedef that
-  follows it (`typedef enum {...} Name;`), which is how clang itself refers
-  to it."
+  :enums {name ir} :anonymous-enums [ir ...] :functions [ir ...]
+  :variables [ir ...]} for the top-level declarations whose file satisfies
+  `file-pred`. A typedef from any other file is kept apart under
+  :system-typedefs, with the spelling clang desugars it to, so a type that
+  reaches a binding through one (time_t, size_t) still resolves. Records are
+  merged by name so a forward declaration does not hide the later complete
+  definition. An anonymous enum or record takes the name of the typedef that
+  follows it (`typedef struct {...} Name;`), which is how clang itself refers
+  to it, and is marked :typedef-named? since C has no tag for it; an enum left unnamed is kept under :anonymous-enums for its
+  constants."
   [dump file-pred]
-  (dissoc
-   (reduce
-    (fn [ir node]
-      (let [file (get node "_file")
-            kind (get node "kind")]
-        (if-not (and file (file-pred file))
-          (if (and (= kind "TypedefDecl") (get node "name"))
-            (assoc-in ir [:system-typedefs (get node "name")] (type-of node))
-            ir)
-          (let [pending (::anonymous-enum ir)
-                ir (dissoc ir ::anonymous-enum)]
-            (case kind
-              "TypedefDecl" (let [{:keys [type] :as t} (type-of node)
-                                  ir (assoc-in ir [:typedefs (get node "name")] (assoc t :file file))
-                                  [_ enum-name] (re-matches #"enum (\S+)" (or type ""))]
-                              (if (and pending enum-name (not (get-in ir [:enums enum-name])))
-                                (assoc-in ir [:enums enum-name] (assoc pending :name enum-name))
-                                ir))
-              "RecordDecl" (let [r (record-ir node)
-                                 name (:name r)]
-                             (if (and name (or (:complete? r)
-                                               (not (get-in ir [:records name]))))
-                               (assoc-in ir [:records name] r)
-                               ir))
-              "EnumDecl" (if-let [name (get node "name")]
-                           (assoc-in ir [:enums name] {:name name
-                                                       :constants (enum-constants node)
-                                                       :file file})
-                           (assoc ir ::anonymous-enum {:constants (enum-constants node) :file file}))
-              "FunctionDecl" (update ir :functions conj (function-ir node))
-              ir)))))
-    {:typedefs {} :system-typedefs {} :records {} :enums {} :functions []}
-    (get dump "inner"))
-   ::anonymous-enum))
+  (let [ir (reduce
+            (fn [ir node]
+              (let [file (get node "_file")
+                    kind (get node "kind")]
+                (if-not (and file (file-pred file))
+                  (if (and (= kind "TypedefDecl") (get node "name"))
+                    (assoc-in ir [:system-typedefs (get node "name")] (type-of node))
+                    ir)
+                  (let [pending (::anonymous ir)
+                        ir (dissoc ir ::anonymous)]
+                    (if (= kind "TypedefDecl")
+                      (let [{:keys [type] :as t} (type-of node)
+                            ir (assoc-in ir [:typedefs (get node "name")] (assoc t :file file))
+                            [_ tag tag-name] (re-matches #"(enum|struct|union) (\S+)" (or type ""))
+                            table (if (= "enum" tag) :enums :records)]
+                        (if (and pending tag-name
+                                 (= (= "enum" tag) (some? (:constants pending)))
+                                 (not (get-in ir [table tag-name])))
+                          (assoc-in ir [table tag-name] (assoc pending :name tag-name :typedef-named? true))
+                          (keep-unnamed ir pending)))
+                      (let [ir (keep-unnamed ir pending)]
+                        (case kind
+                          "RecordDecl" (let [r (record-ir node)
+                                             name (:name r)]
+                                         (cond
+                                           (nil? name) (if (:complete? r) (assoc ir ::anonymous r) ir)
+                                           (or (:complete? r) (not (get-in ir [:records name])))
+                                           (assoc-in ir [:records name] r)
+                                           :else ir))
+                          "EnumDecl" (if-let [name (get node "name")]
+                                       (assoc-in ir [:enums name] {:name name
+                                                                   :constants (enum-constants node)
+                                                                   :file file})
+                                       (assoc ir ::anonymous {:constants (enum-constants node) :file file}))
+                          "FunctionDecl" (update ir :functions conj (function-ir node))
+                          "VarDecl" (update ir :variables conj {:name (get node "name")
+                                                                :type (:type (type-of node))
+                                                                :file file})
+                          ir)))))))
+            {:typedefs {} :system-typedefs {} :records {} :enums {} :anonymous-enums []
+             :functions [] :variables []}
+            (get dump "inner"))]
+    ;; the last declaration has nothing after it to settle what it left pending
+    (dissoc (keep-unnamed ir (::anonymous ir)) ::anonymous)))

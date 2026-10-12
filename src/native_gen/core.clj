@@ -45,7 +45,8 @@
 
 (defn classify-function
   "[:ok f] when the function can be bound, else [:skipped f reason]. A
-  variadic function is bound with the bare `:&` marker, which jolt cannot
+  static function is defined by the header and has no symbol in the library.
+  A variadic function is bound with the bare `:&` marker, which jolt cannot
   combine with :blocking or with an aggregate by value anywhere in the
   signature; a va_list parameter has no jolt spelling at all."
   [ctx blocking f]
@@ -54,6 +55,7 @@
         bad (concat (filter map? ps) (when (map? r) [r]))
         aggregate? (or (some vector? ps) (vector? r))]
     (cond
+      (:static? f) [:skipped f "static function: the library exports no symbol for it"]
       (seq bad) [:skipped f (str/join "; " (map :unsupported bad))]
       (and (:variadic? f) (contains? blocking (:name f))) [:skipped f "variadic and :blocking do not combine"]
       (and (:variadic? f) aggregate?) [:skipped f "variadic with a by-value aggregate"]
@@ -73,16 +75,19 @@
         ir (ast/extract (ast/parse-dump (clang/ast-json manifest pre)) pred)
         ctx ir
         _ (println "evaluating macros")
-        {:keys [values pruned]} (macros/evaluate manifest
-                                                 (macros/candidates pre {:prefixes macro-prefixes
-                                                                         :exclude macro-exclude
-                                                                         :file-pred pred}))
+        scanned (macros/scan pre {:prefixes macro-prefixes :exclude macro-exclude :file-pred pred})
+        {:keys [values pruned]} (macros/evaluate manifest (:candidates scanned))
         classified (map #(classify-function ctx blocking %) (:functions ir))
         functions (map second (filter #(= :ok (first %)) classified))
         skipped-fns (into {} (map (fn [[_ f why]] [(:name f) why]) (remove #(= :ok (first %)) classified)))
-        callbacks (into {} (keep (fn [[n td]] (when-let [sig (types/callback-signature ctx (:type td))]
-                                                [n (assoc sig :file (:file td))]))
-                               (:typedefs ir)))
+        callback-verdicts (into {} (keep (fn [[n td]] (when-let [sig (types/callback-signature ctx (:type td))]
+                                                        [n (assoc sig :file (:file td))]))
+                                       (:typedefs ir)))
+        callbacks (into {} (remove (comp :unsupported val) callback-verdicts))
+        skipped-callbacks (into {} (keep (fn [[n sig]] (when-let [why (:unsupported sig)] [n why])) callback-verdicts))
+        ;; a global is data in the library, not a function to bind
+        skipped-variables (into {} (map (fn [v] [(:name v) (str "global variable of type " (:type v))]) (:variables ir)))
+        enums (concat (sort-by :name (vals (:enums ir))) (:anonymous-enums ir))
         complete (filter :complete? (vals (:records ir)))
         ;; a record with a bitfield or an anonymous member has no jolt
         ;; layout; it is reported and left out, and pointers to it still work
@@ -90,14 +95,14 @@
         skipped-records (into {} (keep (fn [r] (when-let [why (types/unrepresentable-reason ctx r)] [(:name r) why]))) complete)
         by-file (fn [xs] (group-by :file xs))
         files (set (concat (keys (by-file functions)) (keys (by-file records))
-                           (map :file (vals (:enums ir))) (map :file (vals values)) (map :file (vals callbacks))))
+                           (map :file enums) (map :file (vals values)) (map :file (vals callbacks))))
         _ (println "emitting" (count files) "namespaces")
         emitted (for [file (sort files)
                       :let [ns-sym (symbol (emit/header-ns manifest file))
                             in-file #(= file (:file %))
                             parts {:functions (sort-by :name (filter in-file functions))
                                    :records (sort-by :name (filter in-file records))
-                                   :enums (sort-by :name (filter in-file (vals (:enums ir))))
+                                   :enums (filter in-file enums)
                                    :constants (into {} (filter (comp in-file val) values))
                                    :callbacks (into {} (map (fn [[n s]] [n (dissoc s :file)])
                                                             (filter (comp in-file val) callbacks)))}
@@ -119,13 +124,17 @@
                 :namespaces (mapv #(select-keys % [:ns :counts]) emitted)
                 :skipped-functions skipped-fns
                 :skipped-records skipped-records
+                :skipped-callbacks skipped-callbacks
+                :skipped-variables skipped-variables
+                :skipped-macros (:skipped scanned)
                 :pruned-macros pruned
                 :skipped-names (into {} (mapcat :skipped emitted))
                 :opaque-records (sort (map :name (remove :complete? (vals (:records ir)))))}]
     (write! report-out (with-out-str (clojure.pprint/pprint report)))
     (println "functions" (count functions) "skipped" (count skipped-fns)
-             "| records" (count records) "skipped" (count skipped-records) "| enums" (count (:enums ir))
-             "| constants" (count values) "pruned" (count pruned)
-             "| callbacks" (count callbacks))
+             "| records" (count records) "skipped" (count skipped-records) "| enums" (count enums)
+             "| constants" (count values) "pruned" (count pruned) "skipped" (count (:skipped scanned))
+             "| callbacks" (count callbacks) "skipped" (count skipped-callbacks)
+             "| variables skipped" (count skipped-variables))
     (println "report:" report-out)
     report))

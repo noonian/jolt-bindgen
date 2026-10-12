@@ -8,13 +8,24 @@
             [clojure.string :as str]
             [clojure.java.io :as io]))
 
-(defn candidates
-  "Object-like macros from -dD preprocessor output, attributed to the header
-  that defined them: {name {:body s :file f}}. Keeps names matching one of
-  `prefixes`, defined in a file satisfying `file-pred`, and drops bodies that
-  cannot be constant expressions."
+(defn- rejection
+  "Why a wanted macro's definition cannot be a constant, or nil when it can
+  be tried."
+  [mname tail body]
+  (cond (str/starts-with? tail "(") "function-like"
+        (empty? body) "no value"
+        (str/ends-with? mname "_h_") "include guard"
+        (re-find #"[{};#]|__attribute__|__declspec|^__" body) "not a constant expression"))
+
+(defn scan
+  "The macros in -dD preprocessor output that the manifest wants: those
+  matching one of `prefixes`, defined in a file satisfying `file-pred` and
+  not in `exclude`. Returns {:candidates {name {:body s :file f}} :skipped
+  {name reason}}: the object-like ones whose body could be a constant
+  expression, attributed to the header that defined them, and the rest with
+  why they are not. A later definition of a name replaces an earlier one."
   [preprocessed {:keys [prefixes exclude file-pred]}]
-  (loop [lines (str/split-lines preprocessed) file nil acc {}]
+  (loop [lines (str/split-lines preprocessed) file nil acc {:candidates {} :skipped {}}]
     (if-let [line (first lines)]
       (cond
         (str/starts-with? line "# ")
@@ -22,20 +33,26 @@
 
         (str/starts-with? line "#define ")
         (let [[_ mname tail] (re-find #"^#define\s+([A-Za-z_][A-Za-z0-9_]*)(.*)$" line)
+              wanted? (and mname
+                           file (file-pred file)
+                           (some #(str/starts-with? mname %) prefixes)
+                           (not (contains? exclude mname)))
               body (some-> tail str/trim)
-              function-like? (and tail (str/starts-with? tail "("))]
-          (if (and mname (not function-like?)
-                   file (file-pred file)
-                   (some #(str/starts-with? mname %) prefixes)
-                   (not (contains? exclude mname))
-                   (seq body)
-                   (not (str/ends-with? mname "_h_"))
-                   (not (re-find #"[{};#]|__attribute__|__declspec|^__" body)))
-            (recur (rest lines) file (assoc acc mname {:body body :file file}))
-            (recur (rest lines) file acc)))
+              why (when wanted? (rejection mname tail body))]
+          (recur (rest lines) file
+                 (cond
+                   (not wanted?) acc
+                   why (-> acc (update :candidates dissoc mname) (assoc-in [:skipped mname] why))
+                   :else (-> acc (update :skipped dissoc mname)
+                             (assoc-in [:candidates mname] {:body body :file file})))))
 
         :else (recur (rest lines) file acc))
       acc)))
+
+(defn candidates
+  "The :candidates of `scan`."
+  [preprocessed opts]
+  (:candidates (scan preprocessed opts)))
 
 (def ^:private probe-prelude
   "Every association of a C generic selection is type-checked even when it is

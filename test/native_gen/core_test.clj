@@ -21,6 +21,8 @@
       (is (= [:ok nil] (verdicts "fx_mtime"))))
     (testing "a function returning a function pointer returns a pointer"
       (is (= [:ok nil] (verdicts "fx_handler"))))
+    (testing "a static function has no symbol in the library"
+      (is (= :skipped (first (verdicts "fx_twice")))))
     (is (= [:skipped "va_list"] (verdicts "fx_vlog")))
     (is (= [:skipped "variadic and :blocking do not combine"] (verdicts "fx_log_blocking")))
     (is (= [:skipped "variadic with a by-value aggregate"] (verdicts "fx_sum_points")))
@@ -43,16 +45,19 @@
     (testing "the report, written and returned alike"
       (is (= report (edn/read-string (slurp (:report-out m)))))
       (is (= '[fixture.ffi] (map :ns (:namespaces report))))
-      (is (= {:functions 16 :records 6 :enums 2 :constants 7 :callbacks 1}
+      (is (= {:functions 18 :records 8 :enums 3 :constants 7 :callbacks 2}
              (:counts (first (:namespaces report)))))
-      (is (= #{"fx_vlog" "fx_log_blocking" "fx_sum_points" "fx_value" "fx_tagged" "fx_bits"}
+      (is (= #{"fx_vlog" "fx_log_blocking" "fx_sum_points" "fx_value" "fx_tagged" "fx_bits" "fx_twice"}
              (set (keys (:skipped-functions report)))))
       (is (= #{"FX_Bits" "FX_Anonymous"} (set (keys (:skipped-records report)))))
       (is (= ["FX_Opaque"] (:opaque-records report)))
+      (is (= {"FX_VaCallback" "va_list"} (:skipped-callbacks report)))
+      (is (= {"fx_counter" "global variable of type int"} (:skipped-variables report)))
+      (is (= {"FX_FUNCTION_LIKE" "function-like"} (:skipped-macros report)))
       (is (= #{"FX_TYPE_NAME"} (set (keys (:pruned-macros report)))))
       (is (= {} (:skipped-names report))))
     (testing "the layouts were measured for every emitted record"
-      (is (= #{"FX_Point" "FX_Rect" "FX_Value" "FX_Tagged" "FX_Named" "FX_Matrix"} (set (keys layouts))))
+      (is (= #{"FX_Point" "FX_Rect" "FX_Value" "FX_Tagged" "FX_Named" "FX_Matrix" "FX_Vec2" "FX_Plain"} (set (keys layouts))))
       (is (= [8 4] (get-in layouts ["FX_Point" :size+align])))
       (is (= 4 (get-in layouts ["FX_Point" :fields "y"])))
       (is (= 8 (get-in layouts ["FX_Rect" :fields "size"]))))
@@ -71,7 +76,11 @@
       (is (str/includes? source "(def FX_BIG 18446744073709551615N)"))
       (is (str/includes? source "(def FX_MODE_B 5)"))
       (is (str/includes? source "(def FX_ANON_Y 2)"))
+      (is (str/includes? source "(def FX_LOOSE_B 4)"))
       (is (str/includes? source "(def FX_Callback {"))
+      (is (str/includes? source "(def FX_Nested {:args [:int :pointer :pointer], :ret :void})"))
+      (is (not (str/includes? source "FX_VaCallback")))
+      (is (not (str/includes? source "fx_twice")))
       (is (not (str/includes? source "fx_vlog"))))))
 
 (defn- build-library!
@@ -101,6 +110,15 @@
       (ffi/with-layout [p (layout 'FX_Point)]
         (call 'fx_origin p)
         (is (= {:x 3 :y 4} (ffi/read p (layout 'FX_Point))))))
+    (testing "a struct named only by its typedef"
+      (ffi/with-layout [v (layout 'FX_Vec2)]
+        (call 'fx_vec2 v 1.5 2.5)
+        (is (= {:x 1.5 :y 2.5} (ffi/read v (layout 'FX_Vec2))))))
+    (testing "a struct named only by its tag"
+      (ffi/with-layout [p (layout 'FX_Plain)]
+        (ffi/write-field p (layout 'FX_Plain) [:a] 2)
+        (ffi/write-field p (layout 'FX_Plain) [:b] 0.5)
+        (is (= 2.5 (call 'fx_plain p)))))
     (testing "a struct passed by value goes as a pointer to its bytes"
       (ffi/with-layout [r (layout 'FX_Rect)]
         (ffi/write-field r (layout 'FX_Rect) [:origin :x] 1)
