@@ -13,8 +13,13 @@
                       {:args args :exit exit :err err})))
     out))
 
-(defn- flags [{:keys [include-dirs defines]}]
-  (concat (map #(str "-I" %) include-dirs)
+(defn- flags
+  "A manifest with a :clang-target is parsed for that triple rather than for
+  this machine, whose system headers are then not the target's: only what
+  the compiler itself provides (stdint.h, stddef.h, stdarg.h) is there."
+  [{:keys [include-dirs defines clang-target]}]
+  (concat (when clang-target ["-target" clang-target "-ffreestanding"])
+          (map #(str "-I" %) include-dirs)
           (map #(str "-D" %) defines)))
 
 (defn entry-source

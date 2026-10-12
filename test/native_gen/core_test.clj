@@ -41,7 +41,8 @@
   (let [m @fx/manifest
         report @generated
         source (slurp (source-path))
-        layouts (edn/read-string (slurp (:layouts-out m)))]
+        target (edn/read-string (slurp (core/target-file m (core/host-target))))
+        layouts (:layouts target)]
     (testing "the report, written and returned alike"
       (is (= report (edn/read-string (slurp (:report-out m)))))
       (is (= '[fixture.ffi] (map :ns (:namespaces report))))
@@ -144,6 +145,124 @@
         (is (= 7000 (call 'fx_mtime o)))
         (call 'fx_close o)))
     (testing "every emitted layout matches the compiler's measurement"
-      (doseq [[name {:keys [size+align]}] (edn/read-string (slurp (:layouts-out @fx/manifest)))
+      (doseq [[name {:keys [size+align]}] (:layouts (edn/read-string (slurp (core/target-file @fx/manifest (core/host-target)))))
               :let [l (layout (symbol name))]]
         (is (= size+align [(ffi/sizeof l) (ffi/alignof l)]) name)))))
+
+;; --- several targets -------------------------------------------------------
+
+(def windows "windows-x86_64")
+
+(def unix
+  "A target that is not Windows: this machine, unless it is."
+  (if (= windows (core/host-target)) "linux-x86_64" (core/host-target)))
+
+(def portable
+  "A manifest for the header that any target can be extracted from, asking
+  for a Windows and a non-Windows target; one of them is this machine."
+  (delay
+    (let [work (io/file (System/getProperty "java.io.tmpdir")
+                        (str "native-gen-portable-" (System/currentTimeMillis)))]
+      {:headers ["portable.h"]
+       :include-dirs [fx/dir]
+       :file-filter "portable.h"
+       :skip-headers #{}
+       :ns-prefix "portable"
+       :ns-names {"portable.h" "portable.ffi"}
+       :work-dir (str (io/file work "work"))
+       :targets-dir (str (io/file work "targets"))
+       :out-dir (str (io/file work "src"))
+       :test-out (str (io/file work "test"))
+       :test-ns "portable.layout-test"
+       :report-out (str (io/file work "report.edn"))
+       :macro-prefixes ["PT_"]
+       :macro-exclude #{"PT_CALL"}
+       :blocking #{}
+       :targets [windows unix]})))
+
+(def portable-report (delay (core/generate! @portable)))
+
+(defn- recorded [target]
+  (edn/read-string (slurp (core/target-file @portable target))))
+
+(deftest targets-on-record
+  @portable-report
+  (testing "each target is recorded as clang saw it, the one that is not this machine marked"
+    (is (= #{windows unix} (set (keys (core/read-targets @portable)))))
+    (is (false? (:cross? (recorded (core/host-target)))))
+    (is (true? (:cross? (recorded (if (= windows (core/host-target)) unix windows))))))
+  (testing "files are named as the header is included, not as this machine finds it"
+    (is (= #{"portable.h"} (set (map :file (:functions (recorded unix)))))))
+  (testing "a typedef from another header is kept only when a declaration uses it"
+    (is (= ["size_t"] (keys (:system-typedefs (recorded unix))))))
+  (testing "what differs between them"
+    (is (= "long" (get-in (recorded unix) [:typedefs "pt_off" :type])))
+    (is (= "long long" (get-in (recorded windows) [:typedefs "pt_off" :type])))
+    (is (= "/" (get-in (recorded unix) [:macros "PT_SEPARATOR" :value])))
+    (is (= "\\" (get-in (recorded windows) [:macros "PT_SEPARATOR" :value])))
+    (is (= [24 8] (get-in (recorded unix) [:layouts "PT_Entry" :size+align])))
+    (is (= [16 8] (get-in (recorded windows) [:layouts "PT_Entry" :size+align])))
+    (is (= 4 (get-in (recorded windows) [:layouts "PT_Entry" :fields "size"])))))
+
+(deftest merged-bindings
+  (let [report @portable-report
+        source (slurp (str (io/file (:out-dir @portable) "portable" "ffi.jolt")))
+        test-source (slurp (str (io/file (:test-out @portable) "portable" "layout_test.clj")))]
+    (testing "the report names the targets and what they do not share"
+      (is (= #{windows unix} (set (keys (:targets report)))))
+      (is (= {"pt_windows_only" {:only [windows]}
+              "pt_tell" {unix "(ffi/defcfn pt_tell \"pt_tell\" [:pointer] :long)"
+                         windows "(ffi/defcfn pt_tell \"pt_tell\" [:pointer] :int64)"}
+              "PT_SEPARATOR" {unix "(def PT_SEPARATOR \"/\")"
+                              windows "(def PT_SEPARATOR \"\\\\\")"}}
+             (get-in report [:divergent 'portable.ffi]))))
+    (testing "a type that differs is chosen at load"
+      (is (str/includes? source (str "(case native-gen-target\n"
+                                     "  " (pr-str unix) " (ffi/defcfn pt_tell \"pt_tell\" [:pointer] :long)\n"
+                                     "  " (pr-str windows) " (ffi/defcfn pt_tell \"pt_tell\" [:pointer] :int64))"))))
+    (testing "what the targets share is written once"
+      (is (str/includes? source "\n(def PT_VERSION 2)\n"))
+      (is (str/includes? source "\n(def PT_Entry-desc [:struct [[:tag :char] [:size :long] [:next :pointer]]])\n"))
+      (is (str/includes? source "\n(ffi/defcfn pt_windows_only \"pt_windows_only\" [] :int)\n")))
+    (testing "a callback with a calling convention on one target is the same callback"
+      (is (str/includes? source "\n(def PT_Visit {:args [:pointer :pointer], :ret :void})\n")))
+    (testing "the layout test carries every target's measurements"
+      (is (str/includes? test-source "(def measured"))
+      (is (str/includes? test-source (pr-str windows)))
+      (is (str/includes? test-source "(check \"PT_Entry\" #'r0/PT_Entry)")))
+    (testing "loaded here, the bindings are this machine's"
+      (load-file (str (io/file (:out-dir @portable) "portable" "ffi.jolt")))
+      (let [value (fn [sym] @(ns-resolve 'portable.ffi sym))
+            host (core/host-target)]
+        (is (= host (value 'native-gen-target)))
+        (is (= (if (= windows host) "\\" "/") (value 'PT_SEPARATOR)))
+        (is (= (get-in (recorded host) [:layouts "PT_Entry" :size+align])
+               [(ffi/sizeof (value 'PT_Entry)) (ffi/alignof (value 'PT_Entry))]))))))
+
+(deftest checking-the-record
+  @portable-report
+  (let [host (core/host-target)
+        other (if (= windows host) unix windows)
+        file (core/target-file @portable host)
+        text (slurp file)]
+    (testing "a fresh extraction agrees with what was just recorded"
+      (is (nil? (core/check @portable))))
+    (testing "and says what differs when the record is stale"
+      (spit file (str/replace text "\"pt_tell\"" "\"pt_told\""))
+      (is (= {:target host :differs {:functions ["pt_tell" "pt_told"]}} (core/check @portable)))
+      (spit file text))
+    (testing "a target recorded on its own platform is not replaced by a view from this one"
+      (let [other-file (core/target-file @portable other)
+            native (str/replace (slurp other-file) ":cross? true" ":cross? false")]
+        (spit other-file (str/replace native "\"pt_count\"" "\"pt_kept\""))
+        (core/extract! @portable)
+        (is (str/includes? (slurp other-file) "\"pt_kept\""))
+        (spit other-file (str/replace native ":cross? false" ":cross? true"))
+        (core/extract! @portable)
+        (is (not (str/includes? (slurp other-file) "\"pt_kept\"")))))
+    (testing "a target clang cannot parse from here is reported, and the rest go on"
+      (is (= ["android-arm64"]
+             (keys (core/extract! (assoc @portable
+                                         :targets ["android-arm64"]
+                                         :include-dirs {:darwin [fx/dir] :linux [fx/dir] :windows [fx/dir]}))))))))
+

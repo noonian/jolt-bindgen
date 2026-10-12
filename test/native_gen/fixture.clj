@@ -25,7 +25,7 @@
        :out-dir (str (io/file work "src"))
        :test-out (str (io/file work "test"))
        :test-ns "fixture.layout-test"
-       :layouts-out (str (io/file work "layouts.edn"))
+       :targets-dir (str (io/file work "targets"))
        :report-out (str (io/file work "report.edn"))
        :macro-prefixes ["FX_"]
        :macro-exclude #{"FX_EXCLUDED"}

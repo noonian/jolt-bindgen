@@ -87,3 +87,63 @@
       (is (= [["P-desc" "name already used"] ["f" "name already used"]] (sort skipped)))
       (is (not (str/includes? source "(def f 1)")))
       (is (str/includes? source "(ffi/defcfn f \"f\" [] :void)")))))
+
+(defn- entry [section name form]
+  {:section section :name name :form form})
+
+(deftest merging-targets
+  (let [merged (emit/merge-entries
+                ["a" "b" "c"]
+                {"a" [(entry :constants "SAME" "(def SAME 1)")
+                      (entry :constants "SEP" "(def SEP \"/\")")
+                      (entry :records "R" "(def R-desc [:struct [[:x :long]]])\n(def R (ffi/layout [:struct [[:x :long]]]))")
+                      (assoc (entry :functions "tell" "(ffi/defcfn tell \"tell\" [] :long)") :comment ";; off tell()")]
+                 "b" [(entry :constants "SAME" "(def SAME 1)")
+                      (entry :constants "SEP" "(def SEP \"/\")")
+                      (entry :records "R" "(def R-desc [:struct [[:x :long]]])\n(def R (ffi/layout [:struct [[:x :long]]]))")
+                      (assoc (entry :functions "tell" "(ffi/defcfn tell \"tell\" [] :long)") :comment ";; off tell()")]
+                 "c" [(entry :constants "SAME" "(def SAME 1)")
+                      (entry :constants "SEP" "(def SEP \"\\\\\")")
+                      (entry :constants "ONLY" "(def ONLY 3)")
+                      (entry :records "R" "(def R-desc [:struct [[:x :int64]]])\n(def R (ffi/layout [:struct [[:x :int64]]]))")
+                      (assoc (entry :functions "tell" "(ffi/defcfn tell \"tell\" [] :int64)") :comment ";; off tell()")
+                      (entry :functions "extra" "(ffi/defcfn extra \"extra\" [] :int)")]})
+        source (emit/namespace-source {:header-file "x.h" :targets ["a" "b" "c"]} 'x.ffi merged)]
+    (testing "what every target defines alike is written once, unguarded"
+      (is (str/includes? source "\n(def SAME 1)\n")))
+    (testing "what only some define is written unguarded too: a binding is bound when it is called"
+      (is (str/includes? source "\n(def ONLY 3)\n"))
+      (is (str/includes? source "\n(ffi/defcfn extra \"extra\" [] :int)\n")))
+    (testing "what targets define differently is chosen at load, the targets that agree together"
+      (is (str/includes? source (str "(case native-gen-target\n"
+                                     "  (\"a\" \"b\") (def SEP \"/\")\n"
+                                     "  \"c\" (def SEP \"\\\\\"))")))
+      (is (str/includes? source (str ";; off tell()\n"
+                                     "(case native-gen-target\n"
+                                     "  (\"a\" \"b\") (ffi/defcfn tell \"tell\" [] :long)\n"
+                                     "  \"c\" (ffi/defcfn tell \"tell\" [] :int64))"))))
+    (testing "a record's two definitions stay together"
+      (is (str/includes? source (str "  \"c\" (do (def R-desc [:struct [[:x :int64]]])\n"
+                                     "      (def R (ffi/layout [:struct [[:x :int64]]])))"))))
+    (testing "the namespace says which target it is, and refuses any other"
+      (is (str/includes? source "(def native-gen-target"))
+      (is (str/includes? source "(contains? #{\"a\" \"b\" \"c\"} target)"))
+      (is (str/includes? source "NATIVE_GEN_TARGET")))
+    (testing "the report's view of it"
+      (is (= {"SEP" {"a" "(def SEP \"/\")" "b" "(def SEP \"/\")" "c" "(def SEP \"\\\\\")"}
+              "ONLY" {:only ["c"]}
+              "extra" {:only ["c"]}}
+             (dissoc (emit/divergence ["a" "b" "c"] merged) "R" "tell"))))))
+
+(deftest a-target-without-a-divergent-name
+  (let [merged (emit/merge-entries ["a" "b" "c"]
+                                   {"a" [(entry :constants "X" "(def X 1)")]
+                                    "b" [(entry :constants "X" "(def X 2)")]
+                                    "c" []})]
+    (is (str/includes? (emit/namespace-source {:header-file "x.h" :targets ["a" "b" "c"]} 'x.ffi merged)
+                       "(case native-gen-target\n  \"a\" (def X 1)\n  \"b\" (def X 2)\n  nil)"))))
+
+(deftest one-target-has-no-guards
+  (let [source (render {:constants {"A" {:type :int :value "3"}}})]
+    (is (not (str/includes? source "native-gen-target")))))
+

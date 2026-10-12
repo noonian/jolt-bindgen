@@ -199,9 +199,12 @@
   "For a function-pointer type string like \"_Bool (*)(void *, SDL_Event *)\",
   return {:args [...] :ret kw}, or {:unsupported reason} when a parameter or
   the return type has no callback spelling, or nil when the string is not a
-  function-pointer type at all."
+  function-pointer type at all. A calling convention clang spells after the
+  type (`__attribute__((cdecl))`, on Windows) is not part of the signature:
+  the targets jolt runs on have one convention each."
   [ctx s]
-  (when-let [[_ ret params] (re-matches #"(.*?)\s*\(\*\)\s*\((.*)\)" (str/trim s))]
+  (when-let [[_ ret params] (re-matches #"(.*?)\s*\(\*\)\s*\((.*)\)"
+                                        (str/trim (str/replace s #"\s*__attribute__\(\(\w+\)\)" "")))]
     (let [ps (if (contains? #{"" "void"} (str/trim params)) [] (split-params params))
           args (mapv #(if (= "..." %)
                         {:unsupported "variadic callback"}

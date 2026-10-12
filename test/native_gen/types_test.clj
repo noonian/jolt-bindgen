@@ -80,6 +80,9 @@
   (testing "a function-pointer parameter keeps its own commas"
     (is (= {:args [:int :pointer :pointer] :ret :void}
            (types/callback-signature ctx "void (*)(int, void (*)(int, int), void *)"))))
+  (testing "a calling convention after the type is not part of the signature"
+    (is (= {:args [:string] :ret :void}
+           (types/callback-signature ctx "void (*)(const char *) __attribute__((cdecl))"))))
   (testing "not a function pointer"
     (is (nil? (types/callback-signature ctx "int"))))
   (testing "a callback with no spelling says why"
