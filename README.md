@@ -67,8 +67,7 @@ Needs jolt and clang on the path. A binding project depends on the generator
 through an alias in its `deps.edn`, pinned to a commit of this repository:
 
 ```clojure
-:aliases {:gen {:extra-deps {jlt-commons/jolt-bindgen {:git/url "https://github.com/noonian/jolt-bindgen"
-                                                       :git/sha "<commit sha>"}}
+:aliases {:gen {:extra-deps {io.github.noonian/jolt-bindgen {:git/sha "<commit sha>"}}
                 :main-opts ["-m" "noonian.jolt.bindgen.main" "gen/manifest.edn"]}}
 ```
 
