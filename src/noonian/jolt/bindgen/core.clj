@@ -1,14 +1,14 @@
-(ns noonian.jolt.native-gen.core
+(ns noonian.jolt.bindgen.core
   "The generator driver, in two stages. Extraction runs clang for one target
   and records what it saw in a file of its own; emission merges every target
   on record into the binding namespaces, the layout test and a report, and
   needs no compiler. `generate!` does both from a manifest map."
-  (:require [noonian.jolt.native-gen.clang :as clang]
-            [noonian.jolt.native-gen.ast :as ast]
-            [noonian.jolt.native-gen.types :as types]
-            [noonian.jolt.native-gen.macros :as macros]
-            [noonian.jolt.native-gen.emit :as emit]
-            [noonian.jolt.native-gen.verify :as verify]
+  (:require [noonian.jolt.bindgen.clang :as clang]
+            [noonian.jolt.bindgen.ast :as ast]
+            [noonian.jolt.bindgen.types :as types]
+            [noonian.jolt.bindgen.macros :as macros]
+            [noonian.jolt.bindgen.emit :as emit]
+            [noonian.jolt.bindgen.verify :as verify]
             [clojure.string :as str]
             [clojure.java.io :as io]
             [clojure.edn :as edn]))

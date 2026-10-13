@@ -1,11 +1,11 @@
-(ns noonian.jolt.native-gen.macros
+(ns noonian.jolt.bindgen.macros
   "Object-like #define constants. Their names and bodies come from the
   preprocessor's -dD output; their types and values come from probes the C
   compiler parses, so it does the evaluation, and nothing is run: the values
   are those of whatever target clang is parsing for. Macros that are not
   constant expressions are rejected by the compiler and pruned."
-  (:require [noonian.jolt.native-gen.clang :as clang]
-            [noonian.jolt.native-gen.ast :as ast]
+  (:require [noonian.jolt.bindgen.clang :as clang]
+            [noonian.jolt.bindgen.ast :as ast]
             [clojure.string :as str]
             [clojure.java.io :as io]))
 

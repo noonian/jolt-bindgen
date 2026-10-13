@@ -1,7 +1,7 @@
-(ns noonian.jolt.native-gen.types-test
+(ns noonian.jolt.bindgen.types-test
   (:require [clojure.test :refer [deftest is testing]]
-            [noonian.jolt.native-gen.types :as types]
-            [noonian.jolt.native-gen.fixture :as fx]))
+            [noonian.jolt.bindgen.types :as types]
+            [noonian.jolt.bindgen.fixture :as fx]))
 
 (def point [:struct [[:x :int32] [:y :int32]]])
 

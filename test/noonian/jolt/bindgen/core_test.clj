@@ -1,4 +1,4 @@
-(ns noonian.jolt.native-gen.core-test
+(ns noonian.jolt.bindgen.core-test
   "The classifier over the fixture, then a whole run: the files it writes,
   and the generated bindings loaded against the fixture library and called."
   (:require [clojure.test :refer [deftest is testing]]
@@ -7,8 +7,8 @@
             [clojure.java.shell :as sh]
             [clojure.edn :as edn]
             [jolt.ffi :as ffi]
-            [noonian.jolt.native-gen.core :as core]
-            [noonian.jolt.native-gen.fixture :as fx]))
+            [noonian.jolt.bindgen.core :as core]
+            [noonian.jolt.bindgen.fixture :as fx]))
 
 (deftest classify
   (let [ir @fx/ir
@@ -162,7 +162,7 @@
   for a Windows and a non-Windows target; one of them is this machine."
   (delay
     (let [work (io/file (System/getProperty "java.io.tmpdir")
-                        (str "native-gen-portable-" (System/currentTimeMillis)))]
+                        (str "jolt-bindgen-portable-" (System/currentTimeMillis)))]
       {:headers ["portable.h"]
        :include-dirs [fx/dir]
        :file-filter "portable.h"
@@ -217,7 +217,7 @@
                               windows "(def PT_SEPARATOR \"\\\\\")"}}
              (get-in report [:divergent 'portable.ffi]))))
     (testing "a type that differs is chosen at load"
-      (is (str/includes? source (str "(case native-gen-target\n"
+      (is (str/includes? source (str "(case bindgen-target\n"
                                      "  " (pr-str unix) " (ffi/defcfn pt_tell \"pt_tell\" [:pointer] :long)\n"
                                      "  " (pr-str windows) " (ffi/defcfn pt_tell \"pt_tell\" [:pointer] :int64))"))))
     (testing "what the targets share is written once"
@@ -234,7 +234,7 @@
       (load-file (str (io/file (:out-dir @portable) "portable" "ffi.jolt")))
       (let [value (fn [sym] @(ns-resolve 'portable.ffi sym))
             host (core/host-target)]
-        (is (= host (value 'native-gen-target)))
+        (is (= host (value 'bindgen-target)))
         (is (= (if (= windows host) "\\" "/") (value 'PT_SEPARATOR)))
         (is (= (get-in (recorded host) [:layouts "PT_Entry" :size+align])
                [(ffi/sizeof (value 'PT_Entry)) (ffi/alignof (value 'PT_Entry))]))))))

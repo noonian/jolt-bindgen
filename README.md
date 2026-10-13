@@ -1,4 +1,4 @@
-# native-gen
+# jolt-bindgen
 
 A binding generator for the [jolt](https://jolt-lang.net) runtime: clang's
 AST in, jolt namespaces out. Input is a header set and a manifest naming the
@@ -27,8 +27,8 @@ with, and not part of any of them. A binding project uses it through an
 alias:
 
 ```clojure
-:aliases {:gen {:extra-deps {jlt-commons/native-gen {:local/root "../native-gen"}}
-                :main-opts ["-m" "noonian.jolt.native-gen.main" "gen/manifest.edn"]}}
+:aliases {:gen {:extra-deps {jlt-commons/jolt-bindgen {:local/root "../native-gen"}}
+                :main-opts ["-m" "noonian.jolt.bindgen.main" "gen/manifest.edn"]}}
 ```
 
 and regenerates with `jolt -M:gen`. The generated files are committed like
@@ -67,13 +67,13 @@ With one target the namespaces are that target's definitions and nothing
 else. With several, what the targets define alike is written once, and what
 they define differently (a `time_t` that is a `long` here and a `long long`
 there, a macro behind an `#ifdef`) is chosen when the namespace loads, by
-`native-gen-target`; the report lists each under `:divergent`. A function
+`bindgen-target`; the report lists each under `:divergent`. A function
 only some targets declare is written for all of them, since jolt binds a
 function when it is called. The layout test checks the target it runs on.
 
 Such a namespace refuses to load on a target nobody extracted: a binding
 that was never checked there is a guess at an ABI. In an emergency
-`NATIVE_GEN_TARGET=linux-x86_64` loads it as that target anyway, and the
+`JOLT_BINDGEN_TARGET=linux-x86_64` loads it as that target anyway, and the
 layout test then says how far the guess is off.
 
 The tests run the header under `test/fixtures` through the generator, build

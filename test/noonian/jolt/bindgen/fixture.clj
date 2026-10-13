@@ -1,10 +1,10 @@
-(ns noonian.jolt.native-gen.fixture
+(ns noonian.jolt.bindgen.fixture
   "The header under test/fixtures, run through clang once per test run: a
   manifest writing into a fresh temporary directory, the preprocessed text
   and the extracted IR."
-  (:require [noonian.jolt.native-gen.clang :as clang]
-            [noonian.jolt.native-gen.ast :as ast]
-            [noonian.jolt.native-gen.core :as core]
+  (:require [noonian.jolt.bindgen.clang :as clang]
+            [noonian.jolt.bindgen.ast :as ast]
+            [noonian.jolt.bindgen.core :as core]
             [clojure.java.io :as io]))
 
 (def dir (str (io/file (System/getProperty "user.dir") "test" "fixtures")))
@@ -12,7 +12,7 @@
 (def manifest
   (delay
     (let [work (io/file (System/getProperty "java.io.tmpdir")
-                        (str "native-gen-test-" (System/currentTimeMillis)))]
+                        (str "jolt-bindgen-test-" (System/currentTimeMillis)))]
       (.mkdirs work)
       {:headers ["fixture.h"]
        :include-dirs [dir]

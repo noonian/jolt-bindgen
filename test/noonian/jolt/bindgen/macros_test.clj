@@ -1,8 +1,8 @@
-(ns noonian.jolt.native-gen.macros-test
+(ns noonian.jolt.bindgen.macros-test
   (:require [clojure.test :refer [deftest is testing]]
             [clojure.string :as str]
-            [noonian.jolt.native-gen.macros :as macros]
-            [noonian.jolt.native-gen.fixture :as fx]))
+            [noonian.jolt.bindgen.macros :as macros]
+            [noonian.jolt.bindgen.fixture :as fx]))
 
 (def dd-output
   "What clang -E -dD prints: line markers naming the file, then directives."

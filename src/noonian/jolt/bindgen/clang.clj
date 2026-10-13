@@ -1,7 +1,7 @@
-(ns noonian.jolt.native-gen.clang
+(ns noonian.jolt.bindgen.clang
   "Drive clang: preprocess a header set, dump its AST as JSON, and have it
   parse small C probes, whose constants it folds without anything being run."
-  (:require [noonian.jolt.native-gen.json :as json]
+  (:require [noonian.jolt.bindgen.json :as json]
             [clojure.java.shell :as sh]
             [clojure.string :as str]
             [clojure.java.io :as io]))
@@ -48,7 +48,7 @@
 (def probe-prefix
   "What every declaration in a probe is named with, so its dump can be
   narrowed to them."
-  "nativegen_probe_")
+  "bindgen_probe_")
 
 (defn probe-ast
   "Parse a probe source, without compiling or running it, and dump the

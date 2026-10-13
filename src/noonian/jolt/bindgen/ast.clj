@@ -1,8 +1,8 @@
-(ns noonian.jolt.native-gen.ast
+(ns noonian.jolt.bindgen.ast
   "Turn clang's JSON AST dump into a compact intermediate representation:
   typedefs, records, enums and functions, each attributed to the header that
   declared it."
-  (:require [noonian.jolt.native-gen.json :as json]
+  (:require [noonian.jolt.bindgen.json :as json]
             [clojure.string :as str]))
 
 ;; --- file attribution --------------------------------------------------

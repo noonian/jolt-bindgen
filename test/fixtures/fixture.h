@@ -1,4 +1,4 @@
-/* A header exercising every shape native-gen classifies. fixture.c implements
+/* A header exercising every shape jolt-bindgen classifies. fixture.c implements
    it, so the generated bindings can be loaded and called by the tests. */
 #ifndef FIXTURE_H
 #define FIXTURE_H

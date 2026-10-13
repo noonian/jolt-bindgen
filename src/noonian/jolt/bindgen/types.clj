@@ -1,4 +1,4 @@
-(ns noonian.jolt.native-gen.types
+(ns noonian.jolt.bindgen.types
   "Map C type strings from the AST onto jolt.ffi type keywords and layout
   descriptors."
   (:require [clojure.string :as str]))
@@ -112,7 +112,7 @@
     {:kind :array :elem ffi-or-descriptor :dims [n ...]}
     {:kind :unsupported :reason s}
   `ctx` holds :typedefs, :system-typedefs, :records and :enums from
-  noonian.jolt.native-gen.ast/extract. A typedef from the manifest's own headers resolves
+  noonian.jolt.bindgen.ast/extract. A typedef from the manifest's own headers resolves
   through what it names; one from any other header resolves through the
   spelling clang desugared it to."
   [ctx s]

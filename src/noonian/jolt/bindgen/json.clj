@@ -1,4 +1,4 @@
-(ns noonian.jolt.native-gen.json
+(ns noonian.jolt.bindgen.json
   "A small JSON reader, enough for clang's AST dump.
 
   Objects become maps with string keys, arrays become vectors, numbers become
