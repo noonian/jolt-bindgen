@@ -22,18 +22,21 @@ function, a global variable, a callback type with no jolt spelling and a
 wanted macro that cannot be a constant are not bound, and each is in the
 report with the reason.
 
-It is the tool the sdl3, joltc-jlt and cimgui-jlt bindings are generated
-with, and not part of any of them. A binding project uses it through an
-alias:
+## Use
+
+A binding project depends on it through an alias in its `deps.edn`, pinned
+to a commit of this repository:
 
 ```clojure
-:aliases {:gen {:extra-deps {jlt-commons/jolt-bindgen {:local/root "../native-gen"}}
+:aliases {:gen {:extra-deps {jlt-commons/jolt-bindgen {:git/url "https://github.com/noonian/jolt-bindgen"
+                                                       :git/sha "<commit sha>"}}
                 :main-opts ["-m" "noonian.jolt.bindgen.main" "gen/manifest.edn"]}}
 ```
 
 and regenerates with `jolt -M:gen`. The generated files are committed like
 a lockfile, so a regeneration after an upgrade shows the API change as a
-diff. Needs clang on the path.
+diff. Needs clang on the path. To work on the generator itself, point the
+alias at a checkout with `:local/root` instead.
 
 ## Targets
 
