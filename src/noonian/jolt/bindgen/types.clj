@@ -119,7 +119,10 @@
   (let [raw (str/trim s)
         t (strip-qualifiers raw)]
     (cond
-      (contains? va-list-names t) {:kind :unsupported :reason "va_list"}
+      (or (contains? va-list-names t)
+          ;; x86-64's va_list is an array of __va_list_tag, so as a
+          ;; parameter clang spells it as the pointer it decays to
+          (re-matches #"(struct )?__va_list_tag ?\*" t)) {:kind :unsupported :reason "va_list"}
       (const-char-ptr? raw) {:kind :pointer :ffi :string}
       (pointer-type? t) {:kind :pointer :ffi :pointer}
       (array-dims t) (let [[elem dims] (array-dims t)

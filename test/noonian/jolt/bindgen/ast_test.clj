@@ -58,7 +58,8 @@
       (is (true? (:static? (fns "fx_twice"))))
       (is (false? (:static? (fns "fx_add"))))
       (is (false? (:variadic? (fns "fx_vlog"))))
-      (is (= "va_list" (-> (fns "fx_vlog") :params second :type)))
+      ;; x86-64 Linux spells it as the pointer an array of __va_list_tag decays to
+      (is (contains? #{"va_list" "struct __va_list_tag *"} (-> (fns "fx_vlog") :params second :type)))
       (is (= "time_t" (:ret (fns "fx_mtime"))))
       (is (= "void (*)(int)" (:ret (fns "fx_handler"))))
       (is (= "const char *const" (-> (fns "fx_const_name") :params first :type))))

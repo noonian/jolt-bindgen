@@ -144,9 +144,10 @@
 
 (defn ir-double
   "A double as LLVM IR prints it: in decimal when that is exact, and otherwise
-  as the sixteen hex digits of its bits."
+  as the sixteen hex digits of its bits (0x..., or f0x... as newer LLVM prints it)."
   [s]
-  (if (str/starts-with? s "0x")
+  (if-let [s (cond (str/starts-with? s "0x") s
+                   (str/starts-with? s "f0x") (subs s 1))]
     (let [top (Character/digit (nth s 2) 16)
           low (Long/parseLong (str (bit-and top 7) (subs s 3)) 16)]
       (Double/longBitsToDouble (if (> top 7) (+ Long/MIN_VALUE low) low)))
